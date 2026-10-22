@@ -7,12 +7,14 @@
 import * as tmdb from './tmdb.js';
 import { listSites } from './cms/sites.js';
 import { detailSite } from './cms/client.js';
-import { findSources as realFindSources } from './search/aggregate.js';
+import { findSources as realFindSources, seasonOfVod } from './search/aggregate.js';
 import { regionOfCountry, regionOfArea } from './search/normalize.js';
-import { cached } from './cache.js';
+import { cached, putCache, peekCache } from './cache.js';
 import { saveTitle, loadTitle } from './library.js';
 
 const SRC_TTL = 30 * 60;
+// 缓存键带匹配逻辑版本：匹配规则改了，老用户缓存里的「无片源」立刻失效
+const MATCH_V = 'v2';
 
 /** 测试钩子：注入假的 findSources / getWork / listSites；传 null 恢复 */
 const DEFAULT_DEPS = { findSources: realFindSources, getWork: null, listSites };
@@ -22,6 +24,7 @@ export function _setDeps(d) { deps = d ? { ...DEFAULT_DEPS, ...d } : DEFAULT_DEP
 /** 所有资源站都没回应：空结果不可信，抛出去，谁都不缓存它 */
 export class NoSiteAnswered extends Error { constructor() { super('资源站都没有回应'); this.status = 502; } }
 const AVAIL_TTL = 86400;
+const AVAIL_NEG_TTL = 6 * 3600; // 无片源只记 6 小时（资源站随时会补片）
 
 /** TMDB 中文类型名 -> 形态 */
 function kindOfGenres(type, genres = []) {
@@ -116,32 +119,64 @@ function decorate(vods) {
 /** 该作品要不要按季找（TMDB 有两季以上才分季） */
 export const seasonParam = (work, season) => (work?.seasons?.length > 1 && Number(season) > 0 ? Number(season) : undefined);
 
+const vk = (v) => `${v.siteId}:${v.vodId}`;
+const srcKey = (key, s) => `src:${MATCH_V}:${key}:${s ?? ''}`;
+const availKey = (key) => `avail:${MATCH_V}:${key}`;
+const searchKey = (key) => `srch:${MATCH_V}:${key}`;
+
 /**
  * 某作品（某一季）的片源，缓存 30 分钟（空结果只缓存 10 分钟）。
+ * 片名搜索刚给这部作品找到的片源（rememberSearch）也并进来，按季筛：「搜索说有、详情说没有」不再发生。
  * @returns {Promise<any[]>}
  */
 export async function sourcesFor(work, season) {
   const s = seasonParam(work, season);
-  const list = await cached(`src:${work.key}:${s ?? ''}`, SRC_TTL, async () => {
-    const found = await deps.findSources(work, s);
-    const own = work.vod && work.vod.lines?.length ? [work.vod] : [];
-    const seen = new Set();
-    const all = [...own, ...found].filter((v) => !seen.has(`${v.siteId}:${v.vodId}`) && seen.add(`${v.siteId}:${v.vodId}`));
-    if (!all.length && found.anyAnswered === false) throw new NoSiteAnswered();
-    return all.length ? all : null;
-  });
-  return decorate(list || []);
+  const isMovie = work.type === 'movie' || work.kind === 'movie';
+  const fromSearch = (peekCache(searchKey(work.key)) || []).filter((v) => s == null || seasonOfVod(v, isMovie) === s);
+  let list;
+  try {
+    list = await cached(srcKey(work.key, s), SRC_TTL, async () => {
+      const found = await deps.findSources(work, s);
+      const own = work.vod && work.vod.lines?.length ? [work.vod] : [];
+      const seen = new Set();
+      const all = [...own, ...found].filter((v) => !seen.has(vk(v)) && seen.add(vk(v)));
+      if (!all.length && found.anyAnswered === false) throw new NoSiteAnswered();
+      return all.length ? all : null;
+    });
+  } catch (e) {
+    if (!(e instanceof NoSiteAnswered) || !fromSearch.length) throw e;
+  }
+  const seen = new Set();
+  return decorate([...(list || []), ...fromSearch].filter((v) => !seen.has(vk(v)) && seen.add(vk(v))));
 }
 
 /**
- * 推荐卡片的可用性：有没有至少一条片源。结果缓存 1 天。
+ * 推荐卡片的可用性：有没有至少一条片源。有片源缓存 1 天，无片源 6 小时。
  * 取不到作品、或所有资源站都没回应时抛（不缓存）—— 只有至少一个站正常回了「没有」才记成无片源。
  */
 export async function availability(key) {
-  const r = await cached(`avail:${key}`, AVAIL_TTL, async () => {
+  const r = await cached(availKey(key), AVAIL_TTL, async () => {
     const work = await (deps.getWork || getWork)(key);
     if (!work) throw new Error('作品不存在');
     return { ok: (await sourcesFor(work)).length > 0 };
-  });
+  }, (v) => (v?.ok ? AVAIL_TTL : AVAIL_NEG_TTL));
   return !!r?.ok;
+}
+
+/**
+ * 搜索结果顺手记下：作品存进 title 表（作品详情取不到时的兜底），片源记进该作品的片源缓存、可用性记成「有」
+ * （覆盖之前缓存的「无片源」）。详情页 / 卡片角标随后走 sourcesFor / availability 都能看到。
+ * @param {any[]} works searchTitles / searchActor 的 Work[]
+ */
+export function rememberSearch(works) {
+  for (const w of works || []) {
+    try {
+      if (!w?.key) continue;
+      if (!loadTitle(w.key)) { const { sources, available, ...rest } = w; saveTitle(rest); }
+      if (!w.sources?.length) continue;
+      const slim = w.sources.map((v) => ({ siteId: v.siteId, vodId: v.vodId, name: v.name, year: v.year ?? null, remarks: v.remarks || '', lines: v.lines }));
+      putCache(searchKey(w.key), slim, SRC_TTL);
+      putCache(availKey(w.key), { ok: true }, AVAIL_TTL);
+    } catch { /* 缓存失败不影响搜索 */ }
+  }
 }

@@ -70,7 +70,7 @@ export async function testSite(site, { timeoutMs = 8000 } = {}) {
 const SEARCH_CONCURRENCY = 8;
 
 /**
- * 并发搜所有启用站点；单站失败不影响整体，失败的记 fail_streak；排序：fail_streak 小、weight 大的站点结果在前。
+ * 并发搜所有启用站点（每站取第 1 页，满页时再取第 2 页）；单站失败不影响整体，失败的记 fail_streak；排序：fail_streak 小、weight 大的站点结果在前。
  * 返回的数组带 answered（有几个站正常回了 JSON）：全都没回时「没结果」不能当真（调用方别把它缓存成「无片源」）。
  */
 export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
@@ -80,7 +80,13 @@ export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
     const t0 = Date.now();
     const j = await cmsGet(s, { ac: 'videolist', wd: keyword, pg: 1 }, timeoutMs);
     recordResult(s.id, !!j, Date.now() - t0);
-    return { site: s, ok: !!j, vods: toVods(j, s.id) };
+    const vods = toVods(j, s.id);
+    // 第 1 页满页且不止一页：再取第 2 页（短片名「功夫」常被同名前缀的作品挤到后面）
+    if (j && Number(j.pagecount) > 1 && j.list.length >= (Number(j.limit) || 20)) {
+      const seen = new Set(vods.map((v) => v.vodId));
+      vods.push(...toVods(await cmsGet(s, { ac: 'videolist', wd: keyword, pg: 2 }, timeoutMs), s.id).filter((v) => !seen.has(v.vodId)));
+    }
+    return { site: s, ok: !!j, vods };
   })));
   const out = results
     .sort((a, b) => (a.site.fail_streak - b.site.fail_streak) || (b.site.weight - a.site.weight) || (a.site.id - b.site.id))

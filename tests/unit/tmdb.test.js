@@ -54,6 +54,19 @@ before(async () => {
       if (lang === 'zh-TW' || lang === 'zh-HK') return json(res, { id: 1, overview: '' });
       return json(res, { id: 1, overview: 'English overview' });
     }
+    if (p === '/3/tv/2') {
+      return json(res, {
+        id: 2, name: '弱小英雄', original_name: '약한영웅', first_air_date: '2022-11-18', origin_country: ['KR'], overview: '有简介',
+        alternative_titles: { results: [{ title: 'Weak Hero' }, { title: '弱小英雄' }] },
+        translations: { translations: [
+          { iso_639_1: 'en', iso_3166_1: 'US', data: { name: 'Weak Hero Class 1', overview: 'x' } },
+          { iso_639_1: 'zh', iso_3166_1: 'CN', data: { name: '弱小英雄', overview: '' } },
+          { iso_639_1: 'zh', iso_3166_1: 'TW', data: { name: '弱美男英雄', overview: '台' } },
+          { iso_639_1: 'zh', iso_3166_1: 'HK', data: { name: '弱美男英雄', overview: '' } },
+          { iso_639_1: 'zh', iso_3166_1: 'SG', data: { name: '', overview: '' } },
+        ] },
+      });
+    }
     if (p === '/3/tv/404') return json(res, {}, 404);
     if (p === '/3/trending/tv/week') return json(res, { results: [{ id: 5, name: 'T', first_air_date: '2024-02-02', origin_country: ['HK'] }] });
     if (p === '/3/trending/all/week') return json(res, { results: [{ media_type: 'tv', id: 5, name: 'T' }, { media_type: 'person', id: 6 }] });
@@ -118,7 +131,7 @@ test('searchMulti：字段映射、过滤 person、第二次走缓存', async ()
 test('details：append_to_response、主演前 6、别名去重、简介回退 zh-TW -> zh-HK -> en-US', async () => {
   const d = await tmdb.details('tv', 1);
   const first = hits.find((h) => h.path === '/3/tv/1');
-  assert.equal(first.q.append_to_response, 'alternative_titles,credits');
+  assert.equal(first.q.append_to_response, 'alternative_titles,credits,translations');
   assert.equal(d.overview, 'English overview');
   assert.deepEqual(d.alternativeTitles, ['Alt A', 'Alt B']);
   assert.equal(d.cast.length, 6);
@@ -128,6 +141,11 @@ test('details：append_to_response、主演前 6、别名去重、简介回退 z
   const n = hits.length;
   await tmdb.details('tv', 1);
   assert.equal(hits.length, n);
+});
+
+test('details：translations 里的中文译名（zh-TW / zh-HK）并进别名，排在前面', async () => {
+  const d = await tmdb.details('tv', 2);
+  assert.deepEqual(d.alternativeTitles, ['弱美男英雄', 'Weak Hero', '弱小英雄']);
 });
 
 test('details 404 -> null；trending / discover / personCredits', async () => {

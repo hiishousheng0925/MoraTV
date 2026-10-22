@@ -124,3 +124,23 @@ test('重定向到内网被拒（每一跳都校验），跳数有上限', async
 test('超过 5MB 的响应 -> searchSite 返回 []', async () => {
   assert.deepEqual(await searchSite({ id: 1, api: base + '/big' }, 'x', { timeoutMs: 5000 }), []);
 });
+
+test('searchAll：第 1 页满页且不止一页时再取第 2 页（不取第 3 页）', async () => {
+  const pages = [];
+  const srv2 = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const pg = Number(u.searchParams.get('pg') || 1);
+    pages.push(pg);
+    const item = (i) => ({ vod_id: pg * 10 + i, vod_name: `功夫${pg}-${i}`, type_name: '动作片', vod_play_from: 'm3u8', vod_play_url: '正片$https://a/1.m3u8' });
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ code: 1, page: pg, pagecount: 3, limit: '2', total: 6, list: [item(1), item(2)] }));
+  });
+  await new Promise((r) => srv2.listen(0, '127.0.0.1', r));
+  try {
+    for (const s of sites.listSites()) sites.updateSite(s.id, { enabled: 0 });
+    sites.addSite({ name: 'paged', api: `http://127.0.0.1:${srv2.address().port}/api.php/provide/vod` });
+    const r = await sites.searchAll('功夫');
+    assert.equal(r.length, 4);
+    assert.deepEqual(pages.sort(), [1, 2]);
+  } finally { srv2.closeAllConnections?.(); srv2.close(); }
+});

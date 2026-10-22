@@ -295,3 +295,100 @@ test('电影续集（TMDB 命中路径）：流浪地球2 精确同名排第一�
   assert.equal(works[0].sources.length, 2);
   assert.equal(works.find((w) => w.key === 'movie-535167').sources.length, 1);
 });
+
+// ── 0.1.2 匹配回归（tests/fixtures/match-regression.json，条目池取自真实资源站） ──
+import { readFileSync } from 'node:fs';
+const { mapCategory } = await import('../../src/lib/server/cms/categories.js');
+const { toSimplified } = await import('../../src/lib/server/search/normalize.js');
+const FIX = JSON.parse(readFileSync(new URL('../fixtures/match-regression.json', import.meta.url), 'utf8'));
+const poolVod = ([siteId, vodId, name, year, area, typeName, eps, actors]) => vod({
+  siteId, vodId, name, year, area, typeName, category: mapCategory(typeName), actors: actors ? actors.split(',') : [], lines: ep(eps || 1),
+});
+const like = (s) => toSimplified(s).toLowerCase();
+/** 假资源站：按「片名包含关键词」返回（苹果 CMS 的 wd 是 LIKE 搜索） */
+function sitesFrom(pool, terms = []) {
+  return async (kw) => { terms.push(kw); return Object.assign(pool.filter((v) => like(v.name).includes(like(kw))), { answered: 9 }); };
+}
+const keysOf = (list) => list.map((v) => `${v.siteId}:${v.vodId}`);
+const caseOf = (id) => FIX.cases.find((c) => c.id === id);
+
+for (const c of FIX.cases) {
+  test(`回归 findSources · ${c.id}：${c.cause}`, async () => {
+    const pool = c.pool.map(poolVod);
+    const terms = [];
+    agg._setDeps({ searchAll: sitesFrom(pool, terms), tmdb: { hasKey: () => false } });
+    const found = await agg.findSources(c.work, c.season);
+    const got = keysOf(found);
+    const names = (ks) => ks.map((k) => `${k} ${pool.find((v) => `${v.siteId}:${v.vodId}` === k)?.name}`).join(' / ');
+    if (c.only) {
+      const want = new Set(c.only);
+      const missing = c.only.filter((k) => !got.includes(k));
+      const extra = got.filter((k) => !want.has(k));
+      assert.deepEqual({ missing: names(missing), extra: names(extra) }, { missing: '', extra: '' }, `搜索词：${terms.join('|')}`);
+    }
+    const missing = (c.include || []).filter((k) => !got.includes(k));
+    assert.equal(names(missing), '', `漏了（搜索词：${terms.join('|')}）`);
+    const wrong = (c.exclude || []).filter((k) => got.includes(k));
+    assert.equal(names(wrong), '', '混进了别的作品');
+    assert.ok(new Set(terms).size <= 6, `搜索词太多：${terms.join('|')}`);
+  });
+}
+
+/** 用 fixture 的条目池跑 searchTitles，TMDB 只给一条 */
+async function searchCase(id, q, t) {
+  const c = caseOf(id);
+  const pool = c.pool.map(poolVod);
+  agg._setDeps({
+    searchAll: sitesFrom(pool),
+    tmdb: { hasKey: () => true, searchMulti: async () => [tm(t)], details: async () => ({ alternativeTitles: c.work.tmdb.alternativeTitles }) },
+  });
+  const works = await agg.searchTitles(q);
+  return { c, works, w: works.find((w) => w.key === `${t.type}-${t.id}`) };
+}
+
+test('回归 searchTitles · 长城：合拍片地区冲突仍对上 TMDB 条目', async () => {
+  const { c, w } = await searchCase('长城', '长城', { type: 'movie', id: 311324, name: '长城', originalName: 'The Great Wall', year: 2016, region: 'US', popularity: 30 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 创世纪：分部副标题的条目归到 TMDB 剧集', async () => {
+  const { c, w } = await searchCase('创世纪', '创世纪', { type: 'tv', id: 1358, name: '创世纪', originalName: '創世紀', year: 1999, region: 'HK', popularity: 10 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 性敢中环：TMDB 剧集 ↔ 资源站电影（没有剧集条目）也对上', async () => {
+  const { c, works, w } = await searchCase('性敢中环', '性敢中环', { type: 'tv', id: 91491, name: '性敢中环', originalName: '性敢中環', year: 2019, region: 'HK', popularity: 3 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+  assert.equal(works.length, 1);
+});
+
+test('回归 searchTitles · 奥德赛：2025 恐怖片不并进诺兰 2026', async () => {
+  const { c, w } = await searchCase('奥德赛', '奥德赛', { type: 'movie', id: 1368337, name: '奥德赛', originalName: 'The Odyssey', year: 2026, region: 'US', popularity: 200 });
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 苍兰诀：动画版不并进真人剧', async () => {
+  const { works, w } = await searchCase('苍兰诀', '苍兰诀', { type: 'tv', id: 134303, name: '苍兰诀', originalName: '苍兰诀', year: 2022, region: 'CN', popularity: 20 });
+  assert.ok(w.sources.every((v) => !/动画/.test(v.name)));
+  assert.ok(works.every((x) => x.sources.every((v) => !/动画/.test(v.name))), '动画版不该出现在任何结果里');
+});
+
+test('findSources：同一关键词在短时间内只搜一次（逐部查可用性时复用）', async () => {
+  const c = caseOf('功夫');
+  const terms = [];
+  agg._setDeps({ searchAll: sitesFrom(c.pool.map(poolVod), terms), tmdb: { hasKey: () => false } });
+  await agg.findSources(c.work);
+  const n = terms.length;
+  await agg.findSources(c.work);
+  assert.equal(terms.length, n);
+});
+
+test('seasonOfVod：分部副标题 / 罗马数字也读出季号；电影恒为 1', () => {
+  assert.equal(agg.seasonOfVod({ name: '创世纪2：天地有情粤语' }, false), 2);
+  assert.equal(agg.seasonOfVod({ name: '少年包青天Ⅲ之天芒传奇' }, false), 3);
+  assert.equal(agg.seasonOfVod({ name: '庆余年第二季' }, false), 2);
+  assert.equal(agg.seasonOfVod({ name: '流浪地球2' }, true), 1);
+});

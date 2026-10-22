@@ -2,18 +2,7 @@ import { json } from '@sveltejs/kit';
 import { searchTitles, searchActor, searchActorQuick } from '$lib/server/search/aggregate.js';
 import { hasKey, searchPerson } from '$lib/server/tmdb.js';
 import { searchPlot } from '$lib/server/search/plot.js';
-import { saveTitle, loadTitle } from '$lib/server/library.js';
-import { cached } from '$lib/server/cache.js';
-
-/** 搜索结果顺手存进 title 表（作品详情取不到时的兜底），并把片源预热进详情页的片源缓存 */
-function remember(works) {
-  for (const w of works || []) {
-    try {
-      if (!loadTitle(w.key)) { const { sources, available, ...rest } = w; saveTitle(rest); }
-      if (w.sources?.length) cached(`src:${w.key}:`, 30 * 60, async () => w.sources).catch(() => {});
-    } catch { /* 缓存失败不影响搜索 */ }
-  }
-}
+import { rememberSearch as remember } from '$lib/server/works.js';
 
 /**
  * GET /api/search?q=&mode=title|actor|plot|auto[&person=<tmdbPersonId>][&full=1]

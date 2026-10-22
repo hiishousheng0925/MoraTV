@@ -51,3 +51,24 @@ test('sourcesFor：全部站点没回应时抛 NoSiteAnswered', async () => {
   setup([list([], false)]);
   await assert.rejects(works.sourcesFor({ key: 'tv-4', type: 'tv', name: 'x', seasons: [] }), works.NoSiteAnswered);
 });
+
+test('无片源（有站回了「没有」）的可用性只缓存 6 小时', async () => {
+  setup([list([], true)]);
+  assert.equal(await works.availability('tv-5'), false);
+  const row = db().prepare("SELECT expires_at FROM cache WHERE k LIKE 'avail%tv-5'").get();
+  const left = row.expires_at - Math.floor(Date.now() / 1000);
+  assert.ok(left > 5 * 3600 && left <= 6 * 3600, `剩 ${left} 秒`);
+});
+
+test('搜索说有 → 详情也有：rememberSearch 写进片源缓存，分季详情按季取，覆盖旧的「无片源」', async () => {
+  const calls = setup([list([], true)]);
+  assert.equal(await works.availability('tv-6'), false); // 修匹配之前的旧判定
+  const s1 = { ...vod, vodId: '61', name: '创世纪1：地产风云国语', year: 1999 };
+  const s2 = { ...vod, vodId: '62', name: '创世纪2：天地有情粤语', year: 2000 };
+  works.rememberSearch([{ key: 'tv-6', type: 'tv', name: '创世纪', sources: [s1, s2], available: true }]);
+  assert.equal(await works.availability('tv-6'), true);
+  const w = { key: 'tv-6', type: 'tv', name: '创世纪', seasons: [{ season: 1 }, { season: 2 }] };
+  assert.deepEqual((await works.sourcesFor(w, 2)).map((v) => v.vodId), ['62']);
+  assert.deepEqual((await works.sourcesFor(w, 1)).map((v) => v.vodId), ['61']);
+  assert.ok(calls.find >= 1);
+});

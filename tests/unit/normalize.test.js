@@ -57,3 +57,41 @@ test('variants：原词 + 简体 + 繁体，去重', () => {
   assert.deepEqual(variants('  abc '), ['abc']);
   assert.deepEqual(variants(''), []);
 });
+
+const norm = await import('../../src/lib/server/search/normalize.js');
+
+test('normRoman：Ⅰ–Ⅹ 和中文片名里的 II / III 转阿拉伯数字；纯英文片名不动', () => {
+  assert.equal(norm.normRoman('无间道Ⅲ：终极无间'), '无间道3：终极无间');
+  assert.equal(norm.normRoman('無間道III: 終極無間'), '無間道3: 終極無間');
+  assert.equal(norm.normRoman('无间道 III - 终极无间'), '无间道 3 - 终极无间');
+  assert.equal(norm.normRoman('少年包青天Ⅲ之天芒传奇'), '少年包青天3之天芒传奇');
+  assert.equal(norm.normRoman('无间道ⅲ'), '无间道3');
+  assert.equal(norm.normRoman('Rocky II'), 'Rocky II');
+  assert.equal(norm.normRoman('VIP'), 'VIP');
+});
+
+test('normTitle / seasonOf 认罗马数字', () => {
+  assert.equal(normTitle('无间道Ⅲ：终极无间'), normTitle('无间道3：终极无间'));
+  assert.equal(seasonOf('少年包青天Ⅲ'), 3);
+  assert.equal(normTitle('少年包青天Ⅲ'), '少年包青天');
+});
+
+test('stripPartSubtitle：「片名N：副标题」「片名之副标题」→ 片名 + 分部号', () => {
+  assert.deepEqual(norm.stripPartSubtitle('创世纪1：地产风云国语'), { base: '创世纪', part: 1 });
+  assert.deepEqual(norm.stripPartSubtitle('創世紀2：天地有情'), { base: '创世纪', part: 2 });
+  assert.deepEqual(norm.stripPartSubtitle('HIStory3-圈套'), { base: 'HIStory', part: 3 });
+  assert.deepEqual(norm.stripPartSubtitle('HIStory5: 遇见未来的你'), { base: 'HIStory', part: 5 });
+  assert.deepEqual(norm.stripPartSubtitle('少年包青天Ⅲ之天芒传奇'), { base: '少年包青天', part: 3 });
+  assert.deepEqual(norm.stripPartSubtitle('少年包青天 第三部：天芒传奇'), { base: '少年包青天', part: 3 });
+  assert.deepEqual(norm.stripPartSubtitle('大军师司马懿之军师联盟'), { base: '大军师司马懿', part: null });
+  assert.deepEqual(norm.stripPartSubtitle('终结者：创世纪'), { base: '终结者', part: null });
+  assert.equal(norm.stripPartSubtitle('繁花'), null);
+  assert.equal(norm.stripPartSubtitle('之后'), null);
+});
+
+test('regionsOfArea：多地区全收；「中国香港」不算大陆', () => {
+  assert.deepEqual(norm.regionsOfArea('中国大陆 / 美国'), ['cn', 'west']);
+  assert.deepEqual(norm.regionsOfArea('中国台湾 / 中国大陆'), ['tw', 'cn']);
+  assert.deepEqual(norm.regionsOfArea('中国香港'), ['hk']);
+  assert.deepEqual(norm.regionsOfArea(''), []);
+});

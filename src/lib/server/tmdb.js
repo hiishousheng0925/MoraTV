@@ -120,12 +120,20 @@ export async function personCredits(id) {
     .sort((a, b) => b.popularity - a.popularity);
 }
 
+const ZH_ORDER = ['CN', 'TW', 'HK', 'SG'];
+const zhRank = (c) => { const i = ZH_ORDER.indexOf(c); return i < 0 ? ZH_ORDER.length : i; };
+
 /** @param {'tv'|'movie'} type */
 export async function details(type, id) {
   if (!hasKey() || (type !== 'tv' && type !== 'movie') || !id) return null;
-  const d = await get(`/${type}/${id}`, { append_to_response: 'alternative_titles,credits' }, TTL_DETAIL);
+  const d = await get(`/${type}/${id}`, { append_to_response: 'alternative_titles,credits,translations' }, TTL_DETAIL);
   if (!d) return null;
-  let overview = d.overview || '';
+  // translations：各中文地区的译名（资源站常用台湾 / 香港译名，比如「弱美男英雄」只在 zh-TW / zh-HK 里），简介也能从这里回退
+  const zh = (d.translations?.translations || []).filter((t) => t.iso_639_1 === 'zh')
+    .sort((a, b) => zhRank(a.iso_3166_1) - zhRank(b.iso_3166_1));
+  const own = new Set([d.name, d.title, d.original_name, d.original_title].filter(Boolean));
+  const zhTitles = zh.map((t) => String(t.data?.name || t.data?.title || '').trim()).filter((n) => n && !own.has(n));
+  let overview = d.overview || zh.find((t) => t.data?.overview)?.data.overview || '';
   if (!overview) {
     for (const lang of ['zh-TW', 'zh-HK', 'en-US']) {
       const f = await get(`/${type}/${id}`, {}, TTL_DETAIL, lang).catch(() => null);
@@ -143,7 +151,7 @@ export async function details(type, id) {
     backdrop: d.backdrop_path || null,
     numberOfSeasons: d.number_of_seasons ?? null,
     numberOfEpisodes: d.number_of_episodes ?? null,
-    alternativeTitles: [...new Set(alts.map((t) => t.title).filter(Boolean))],
+    alternativeTitles: [...new Set([...zhTitles, ...alts.map((t) => t.title)].filter(Boolean))],
     cast: (d.credits?.cast || []).slice(0, 6).map((c) => ({ id: c.id, name: c.name, character: c.character || '', profile: c.profile_path || null })),
     seasons: (d.seasons || []).map((s) => ({
       season: s.season_number, name: s.name || '', episodeCount: s.episode_count ?? 0, airDate: s.air_date || null, poster: s.poster_path || null,
