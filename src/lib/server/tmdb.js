@@ -80,12 +80,39 @@ export async function searchPerson(q) {
   }));
 }
 
+const NON_DRAMA_GENRES = new Set([10767, 10764, 10763]); // Talk / Reality / News
+// 「Self」「Herself - Nominee」「Self (archive footage)」「Host」「本人」；角色名里带 self 的（「Young Self」）不误伤
+const SELF_CHARACTER = /^\s*(?:self|himself|herself|themselves|themself|host|presenter)\b|\((?:self|himself|herself)\)|\bas (?:himself|herself)\b|^\s*(?:本人|自己|他自己|她自己|主持人?|嘉宾)/i;
+const AWARD_TITLE = /颁奖|典礼|晚会|春晚|金像奖|金马奖|金钟奖|金鸡奖|百花奖|飞天奖|白玉兰奖|百想|\bawards?\b|\boscars?\b|golden globes?|\bemmys?\b|\bgala\b|ceremony/i;
+
+/** 比较人名用：去空白 / 标点 / 连字符，小写（「Yoo Jae-suk」=「Yoo Jae Suk」） */
+const nameKey = (s) => String(s || '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
+
+/**
+ * 演员作品里只留「演戏」的：综艺 / 脱口秀 / 新闻（genre）、以本人身份出镜（character 是 Self / 本人 / 就是这个人的名字）、
+ * 颁奖礼 / 晚会（片名）都不算。
+ * @param {any} r TMDB combined_credits 的 cast 条目（原始字段）
+ * @param {Iterable<string>} [selfNames] 这个人的名字（含别名），角色名等于它们之一 = 本人出镜
+ */
+export function isActingCredit(r, selfNames = []) {
+  if ((r.genre_ids || []).some((g) => NON_DRAMA_GENRES.has(g))) return false;
+  const ch = String(r.character || '');
+  if (SELF_CHARACTER.test(ch)) return false;
+  const ck = nameKey(ch);
+  if (ck && [...selfNames].some((n) => nameKey(n) === ck)) return false;
+  const titles = [r.name, r.title, r.original_name, r.original_title].filter(Boolean).join(' ');
+  return !AWARD_TITLE.test(titles);
+}
+
+/** 人物作品（只取演戏的，去重，按热度）。人物详情和作品一次取回：要拿名字 / 别名认「本人出镜」。 */
 export async function personCredits(id) {
   if (!hasKey() || !id) return [];
-  const j = await get(`/person/${id}/combined_credits`, {}, TTL_DETAIL);
+  const j = await get(`/person/${id}`, { append_to_response: 'combined_credits' }, TTL_DETAIL);
+  const names = [j?.name, ...(j?.also_known_as || [])].filter(Boolean);
   const seen = new Set();
-  return (j?.cast || [])
-    .filter((r) => (r.media_type === 'tv' || r.media_type === 'movie') && !seen.has(r.media_type + r.id) && seen.add(r.media_type + r.id))
+  return (j?.combined_credits?.cast || [])
+    .filter((r) => (r.media_type === 'tv' || r.media_type === 'movie') && isActingCredit(r, names)
+      && !seen.has(r.media_type + r.id) && seen.add(r.media_type + r.id))
     .map((r) => mapItem(r))
     .sort((a, b) => b.popularity - a.popularity);
 }
