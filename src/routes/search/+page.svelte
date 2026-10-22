@@ -14,6 +14,7 @@
   import { toCard, posterUrl } from '$lib/work.js';
   import { avail, watchAvail } from '$lib/avail.svelte.js';
   import UserCircle from 'phosphor-svelte/lib/UserCircle';
+  import CaretRight from 'phosphor-svelte/lib/CaretRight';
 
   const FIRST = 12;
 
@@ -24,10 +25,11 @@
   let loading = $state(false);
   let res = $state(null);   // { works, persons?, person? }
   let more = $state(false);
+  let showShort = $state(false);
 
   $effect(() => {
     const qq = q, m = mode, p = person;
-    res = null; more = false;
+    res = null; more = false; showShort = false;
     if (!qq) { loading = false; return; }
     const ctl = new AbortController();
     loading = true;
@@ -38,7 +40,7 @@
         const j = await r.json().catch(() => ({}));
         if (j.error === 'NO_LLM_KEY') toast.error('先在设置里填写 AI 接口', { action: { label: '去设置', href: '/settings#ai' } });
         else if (!r.ok) toast.error(j.error || '搜索失败');
-        res = { works: j.works ?? [], persons: j.persons ?? [], person: j.person ?? null, error: !r.ok };
+        res = { works: j.works ?? [], persons: j.persons ?? [], person: j.person ?? null, bySites: !!j.bySites, actorCard: j.actorCard ?? null, error: !r.ok };
       })
       .catch((e) => { if (e?.name !== 'AbortError') { toast.error('搜索失败'); res = { works: [], persons: [], error: true }; } })
       .finally(() => { if (!ctl.signal.aborted) loading = false; });
@@ -48,7 +50,10 @@
   const isActor = $derived(!!res?.persons?.length);
   /** 演员作品的可用性是懒加载的，其余模式服务端已经给了 */
   const works = $derived((res?.works ?? []).map((w) => (w.available == null ? { ...w, available: avail.of(w.key) } : w)));
-  const shown = $derived(more ? works : works.slice(0, FIRST));
+  /** 正剧 / 电影在前；短剧折成一组放最后 */
+  const main = $derived(works.filter((w) => w.kind !== 'short'));
+  const shorts = $derived(works.filter((w) => w.kind === 'short'));
+  const shown = $derived(more ? main : main.slice(0, FIRST));
   const lazyKeys = $derived((res?.works ?? []).filter((w) => w.available == null).map((w) => w.key));
   const personHref = (id) => `/search?q=${encodeURIComponent(q)}&mode=actor&person=${id}`;
 </script>
@@ -67,6 +72,19 @@
       </div>
     </div>
   {:else if res}
+    {#if res.actorCard}
+      {@const c = res.actorCard}
+      <a href={personHref(c.id)} data-actor-card
+         class="tap card mt-6 flex max-w-md items-center gap-3.5 rounded-2xl p-3 transition hover:border-accent">
+        {#if c.profile}<img src={posterUrl(c.profile, 'w185')} alt="" class="h-14 w-14 rounded-full object-cover" />
+        {:else}<UserCircle size={56} class="text-ink-400" />{/if}
+        <div class="min-w-0">
+          <div class="truncate text-[15px] font-medium text-ink-100">{c.name}</div>
+          <div class="text-[12.5px] text-ink-400">演员 · 代表作 {c.workCount} 部</div>
+        </div>
+        <CaretRight size={18} class="ml-auto shrink-0 text-ink-400" aria-hidden="true" />
+      </a>
+    {/if}
     {#if isActor}
       <div class="mt-6 flex flex-wrap gap-2" data-persons>
         {#each res.persons.slice(0, 8) as p (p.id)}
@@ -83,19 +101,30 @@
     {/if}
 
     {#if works.length}
-      <Section title={isActor ? '作品' : '结果'} count={works.length}>
-        <div use:watchAvail={lazyKeys} data-results><CardGrid items={shown.map((w) => toCard(w))} eager /></div>
-        {#if works.length > FIRST && !more}
+      <Section title={isActor || res.bySites ? '作品' : '结果'} count={works.length}>
+        <div use:watchAvail={lazyKeys} data-results>{#if main.length}<CardGrid items={shown.map((w) => toCard(w))} eager />{/if}</div>
+        {#if main.length > FIRST && !more}
           <div class="mt-5 flex justify-center">
             <button onclick={() => (more = true)}
                     class="tap rounded-full border border-ink-600 bg-ink-900 px-5 py-2 text-[13px] text-ink-200 transition hover:border-accent hover:text-accent-ink">
-              更多 {works.length - FIRST}
+              更多 {main.length - FIRST}
             </button>
+          </div>
+        {/if}
+        {#if shorts.length}
+          <div class="mt-6" data-shorts>
+            <button onclick={() => (showShort = !showShort)} aria-expanded={showShort}
+                    class="tap rounded-full border border-ink-600 bg-ink-900 px-5 py-2 text-[13px] text-ink-200 transition hover:border-accent hover:text-accent-ink">
+              短剧 {shorts.length} 部{showShort ? ' · 收起' : ''}
+            </button>
+            {#if showShort}
+              <div class="mt-4"><CardGrid items={shorts.map((w) => toCard(w))} eager /></div>
+            {/if}
           </div>
         {/if}
       </Section>
     {:else if !res.error}
-      <div class="mt-8"><EmptyState title="没有找到「{q}」" /></div>
+      <div class="mt-8"><EmptyState title="没有结果" /></div>
     {/if}
   {/if}
   <div class="h-6"></div>

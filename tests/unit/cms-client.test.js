@@ -23,7 +23,7 @@ before(async () => {
     const p = u.pathname;
     if (p === '/ok/api.php/provide/vod') {
       res.setHeader('content-type', 'application/json');
-      if (u.searchParams.get('ac') === 'list') return res.end(JSON.stringify({ code: 1, total: 1, class: [{ type_id: 13, type_name: '国产剧' }], list: [] }));
+      if (u.searchParams.get('ac') === 'list') return res.end(JSON.stringify({ code: 1, total: 1, class: [{ type_id: 13, type_name: '国产剧', type_pid: 2 }, { type_id: 2, type_name: '连续剧' }], list: [] }));
       if (u.searchParams.get('ids')) return res.end(JSON.stringify({ code: 1, list: [vod] }));
       return res.end(JSON.stringify({ code: 1, total: 99, list: [vod] }));
     }
@@ -55,7 +55,7 @@ test('searchSite: HTML / code:0 / 404 / 超时 都返回 []', async () => {
 test('detailSite / listCategories', async () => {
   const s = { id: 2, api: `${base}/ok/api.php/provide/vod` };
   assert.equal((await detailSite(s, [1, 2])).length, 1);
-  assert.deepEqual(await listCategories(s), [{ id: 13, name: '国产剧' }]);
+  assert.deepEqual(await listCategories(s), [{ id: 13, name: '国产剧', pid: 2 }, { id: 2, name: '连续剧', pid: null }]);
 });
 
 test('首次 listSites 写入内置站点', () => {
@@ -123,4 +123,56 @@ test('重定向到内网被拒（每一跳都校验），跳数有上限', async
 
 test('超过 5MB 的响应 -> searchSite 返回 []', async () => {
   assert.deepEqual(await searchSite({ id: 1, api: base + '/big' }, 'x', { timeoutMs: 5000 }), []);
+});
+
+test('searchAll：第 1 页满页且不止一页时再取第 2 页（不取第 3 页）', async () => {
+  const pages = [];
+  const srv2 = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const pg = Number(u.searchParams.get('pg') || 1);
+    pages.push(pg);
+    const item = (i) => ({ vod_id: pg * 10 + i, vod_name: `功夫${pg}-${i}`, type_name: '动作片', vod_play_from: 'm3u8', vod_play_url: '正片$https://a/1.m3u8' });
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ code: 1, page: pg, pagecount: 3, limit: '2', total: 6, list: [item(1), item(2)] }));
+  });
+  await new Promise((r) => srv2.listen(0, '127.0.0.1', r));
+  try {
+    for (const s of sites.listSites()) sites.updateSite(s.id, { enabled: 0 });
+    sites.addSite({ name: 'paged', api: `http://127.0.0.1:${srv2.address().port}/api.php/provide/vod` });
+    const r = await sites.searchAll('功夫');
+    assert.equal(r.length, 4);
+    assert.deepEqual(pages.sort(), [1, 2]);
+  } finally { srv2.closeAllConnections?.(); srv2.close(); }
+});
+
+test('searchAll quick：不等最慢的站（够 total−2 个站再等 500ms 就返回），没做完的站不算 answered；第 2 页也受这个时限', async () => {
+  const srv3 = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const pg = Number(u.searchParams.get('pg') || 1);
+    const name = u.pathname.split('/')[1];
+    const body = (n) => JSON.stringify({ code: 1, page: pg, pagecount: n > 1 ? 2 : 1, limit: '1', total: n, list: [{ vod_id: pg, vod_name: `繁花${name}${pg}`, type_name: '国产剧', vod_play_from: 'm3u8', vod_play_url: '第1集$https://a/1.m3u8' }] });
+    res.setHeader('content-type', 'application/json');
+    if (name === 'slow') return void setTimeout(() => res.end(body(1)), 2500);
+    if (name === 'slowp2') return pg === 1 ? res.end(body(2)) : void setTimeout(() => res.end(body(2)), 2500);
+    res.end(body(1));
+  });
+  await new Promise((r) => srv3.listen(0, '127.0.0.1', r));
+  const port = srv3.address().port;
+  try {
+    for (const s of sites.listSites()) sites.updateSite(s.id, { enabled: 0 });
+    for (const n of ['a', 'b', 'c', 'slow', 'slowp2']) sites.addSite({ name: n, api: `http://127.0.0.1:${port}/${n}/api.php/provide/vod` });
+    let t0 = Date.now();
+    const q = await sites.searchAll('繁花', { quick: true });
+    const quickMs = Date.now() - t0;
+    assert.ok(quickMs < 1500, `quick 用了 ${quickMs}ms`);
+    assert.equal(q.total, 5);
+    assert.equal(q.answered, 3, '慢站和第 2 页没到的站都不算 answered');
+    assert.ok(q.answered < q.total, '不完整（调用方不复用）');
+    assert.deepEqual(q.map((v) => v.name).sort(), ['繁花a1', '繁花b1', '繁花c1', '繁花slowp21'], '第 2 页没到的站带上已到的第 1 页');
+    t0 = Date.now();
+    const full = await sites.searchAll('繁花');
+    assert.ok(Date.now() - t0 >= 2000, '等齐模式要等慢站');
+    assert.equal(full.answered, 5);
+    assert.equal(full.length, 6);
+  } finally { srv3.closeAllConnections?.(); srv3.close(); }
 });

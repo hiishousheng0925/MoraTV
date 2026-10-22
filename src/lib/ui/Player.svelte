@@ -4,7 +4,7 @@
    *   · 控制条：上一集 / 播放 / 下一集 · 时间 · 倍速 · 音量 · 画中画 · 全屏；进度条带缓冲段、悬停显示时间
    *   · 手机 / 窄窗（<640px）：只留 播放 / 下一集 · 时间 · ⋯ · 全屏，上一集 / 倍速 / 静音收进「⋯」
    *   · 鼠标 3 秒不动、正在播放时自动隐藏控制条和光标；双击全屏
-   *   · 快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集
+   *   · 快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集；传了 ontheater 时 T 切剧场模式
    *   · 触屏：点一下显示 / 隐藏控制条，双击左右两侧 ±10 秒
    *   · 播完倒数 5 秒自动下一集，可取消
    *   · 倍速和音量记在 localStorage（个人偏好，丢了也只是回到默认）
@@ -26,6 +26,7 @@
    *   hls          强制走 hls.js（地址里看不出 .m3u8 时，比如本地代理）                默认 false
    *   ontime(t, dur)   timeupdate 时回调当前秒数和总时长（记进度用）
    *   onpause(t, dur) / onplay()   暂停 / 开始播放
+   *   theater/ontheater  剧场模式开关（可选，不传不显示按钮、T 键无效）；布局由调用方决定
    */
   import Play from 'phosphor-svelte/lib/Play';
   import Pause from 'phosphor-svelte/lib/Pause';
@@ -36,6 +37,8 @@
   import CornersOut from 'phosphor-svelte/lib/CornersOut';
   import CornersIn from 'phosphor-svelte/lib/CornersIn';
   import PictureInPicture from 'phosphor-svelte/lib/PictureInPicture';
+  import ArrowsOutLineHorizontal from 'phosphor-svelte/lib/ArrowsOutLineHorizontal';
+  import ArrowsInLineHorizontal from 'phosphor-svelte/lib/ArrowsInLineHorizontal';
   import Camera from 'phosphor-svelte/lib/Camera';
   import Heart from 'phosphor-svelte/lib/Heart';
   import DotsThree from 'phosphor-svelte/lib/DotsThree';
@@ -48,7 +51,8 @@
 
   let { src, title = '', epLabel = '', liked = false, onlike, onshot, onback = null, immersive = false,
         hasPrev = false, hasNext = false, onprev, onnext, onprogress, onfail, onmeta, pending,
-        start = 0, hls: forceHls = false, ontime: ontimeCb, onpause: onpauseCb, onplay: onplayCb } = $props();
+        start = 0, hls: forceHls = false, ontime: ontimeCb, onpause: onpauseCb, onplay: onplayCb,
+        theater = false, ontheater = null } = $props();
 
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -126,7 +130,8 @@
       arrowup: () => { volume = Math.min(1, +(volume + 0.1).toFixed(2)); muted = false; poke(); },
       arrowdown: () => { volume = Math.max(0, +(volume - 0.1).toFixed(2)); poke(); },
       f: toggleFull, m: () => { muted = !muted; poke(); },
-      n: () => hasNext && onnext?.(), p: () => hasPrev && onprev?.()
+      n: () => hasNext && onnext?.(), p: () => hasPrev && onprev?.(),
+      t: ontheater && !full ? () => { ontheater(); poke(); } : null
     }[k];
     if (act) { e.preventDefault(); act(); }
   }
@@ -287,6 +292,12 @@
         <input type="range" min="0" max="1" step="0.05" bind:value={volume} oninput={() => (muted = false)} aria-label="音量"
                class="player-range hidden w-20 sm:block" />
         <button class="{BTN} max-sm:hidden" onclick={pip} aria-label="画中画"><PictureInPicture size={18} /></button>
+        {#if ontheater && !full}
+          <button class={BTN} onclick={() => ontheater?.()} aria-pressed={theater} data-theater
+                  aria-label={theater ? '退出剧场模式' : '剧场模式'} title={theater ? '退出剧场模式 (T)' : '剧场模式 (T)'}>
+            {#if theater}<ArrowsInLineHorizontal size={18} />{:else}<ArrowsOutLineHorizontal size={18} />{/if}
+          </button>
+        {/if}
 
         <!-- 手机：上一集 / 倍速 / 静音都在「⋯」里（面板见下面，从播放器右侧盖上来） -->
         <div class="relative sm:hidden">

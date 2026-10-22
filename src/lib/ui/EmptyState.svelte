@@ -1,14 +1,14 @@
 <script>
   /**
    * 空状态：居中卡片，大号弱色图标 + 标题 + 可选动作区。
-   * 不带说明句 —— 标题本身就是状态（「没有找到「xxx」」「还没有观看记录」），见 CLAUDE.md。
+   * 不带说明句 —— 标题本身就是状态（「没有结果」「还没有观看记录」），见 CLAUDE.md。
    *
    * props
    *   title     标题（必填）
    *   icon      phosphor-svelte 的图标组件，如 `import Ghost from 'phosphor-svelte/lib/Ghost'`   默认 MagnifyingGlass
    *   bare      不要卡片底 / 边框（放在已经是卡片的容器里时用）                                默认 false
    *   children  动作区（snippet），如「清除筛选」「去目录」按钮；不传就没有
-   * 例：<EmptyState title="没有找到「{q}」"><a href="/search" class="…">清除搜索</a></EmptyState>
+   * 例：<EmptyState title="没有结果"><a href="/search" class="…">清除搜索</a></EmptyState>
    */
   import MagnifyingGlass from 'phosphor-svelte/lib/MagnifyingGlass';
   let { title, icon = MagnifyingGlass, bare = false, children } = $props();

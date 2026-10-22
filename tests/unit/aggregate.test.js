@@ -262,6 +262,60 @@ test('演员搜索：同名人物按热度排，取最热的那位（TMDB 把无
   assert.equal(q.person, 25246);
 });
 
+test('searchActorSites：资源站按名字搜，只留 vod_actor 里有这个名字的条目（繁简 / 间隔号），聚成作品、跳过综艺', async () => {
+  const a = (o) => vod({ area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, ...o });
+  deps({ '赵丽颖': [
+    a({ siteId: 1, vodId: '1', name: '花千骨', year: 2015, actors: ['赵丽颖', '霍建华'] }),
+    a({ siteId: 2, vodId: '2', name: '花千骨', year: 2015, actors: ['趙麗穎'] }), // 繁体
+    a({ siteId: 1, vodId: '3', name: '赵丽颖的朋友们', year: 2020, actors: ['某某'] }), // 片名含关键词但不是她演的
+    a({ siteId: 1, vodId: '4', name: '楚乔传', year: 2017, actors: ['赵丽颖丽'] }), // 不是整个名字相等
+    a({ siteId: 1, vodId: '5', name: '周末晚会', year: 2020, typeName: '综艺', category: { kind: 'variety', region: null }, actors: ['赵丽颖'] }),
+    a({ siteId: 1, vodId: '6', name: '风吹半夏', year: 2022, actors: ['赵丽颖'] }),
+  ] }, { key: false });
+  const r = await agg.searchActorSites('赵丽颖');
+  assert.equal(r.bySites, true);
+  assert.deepEqual(r.persons, []);
+  assert.deepEqual(r.works.map((w) => w.name), ['风吹半夏', '花千骨']);
+  assert.equal(r.works.find((w) => w.name === '花千骨').sources.length, 2);
+  assert.ok(r.works.every((w) => w.available && w.tmdb === null && w.key.startsWith('cms-')));
+  deps({}, { key: false });
+  assert.deepEqual((await agg.searchActorSites('刘德华')).works, []);
+});
+
+test('findActorEntry：名字完全相同且热度够才给入口；同名取最热；没 key / 热度低 / 名字不同都没有', async () => {
+  const persons = [
+    { id: 9, name: '刘德华', originalName: '刘德华', popularity: 0.27, profile: null, works: [] },
+    { id: 25246, name: '刘德华', originalName: '劉德華', popularity: 6.6, profile: '/p.jpg', works: [] },
+    { id: 7, name: '刘德华仔', originalName: '刘德华仔', popularity: 9, profile: null, works: [] },
+  ];
+  const credits = [tm({ id: 5, type: 'movie', name: '无间道', year: 2002 }), tm({ id: 6, type: 'movie', name: '风暴', year: 2013 })];
+  deps({}, { persons, credits });
+  const e = await agg.findActorEntry('劉德華'); // 繁体也认（原名 / 简繁不敏感）
+  assert.deepEqual({ id: e.id, name: e.name, profile: e.profile, workCount: e.workCount }, { id: 25246, name: '刘德华', profile: '/p.jpg', workCount: 2 });
+  assert.equal(await agg.findActorEntry('刘德'), null, '不是完整名字');
+  // 代表作 N 部 = 演员页实际列出的部数（最多 24），不是全部作品数
+  deps({}, { persons, credits: Array.from({ length: 40 }, (_, i) => tm({ id: 100 + i, type: 'movie', name: `片${i}`, year: 2000 + (i % 20) })) });
+  assert.equal((await agg.findActorEntry('刘德华')).workCount, (await agg.searchActorQuick('刘德华')).works.length);
+  deps({}, { persons: [persons[0]], credits });
+  assert.equal(await agg.findActorEntry('刘德华'), null, '热度太低');
+  deps({}, { persons, credits: [] });
+  assert.equal(await agg.findActorEntry('刘德华'), null, '没有作品');
+  deps({}, { persons, credits, key: false });
+  assert.equal(await agg.findActorEntry('刘德华'), null);
+  deps({}, { fail: true });
+  assert.equal(await agg.findActorEntry('刘德华'), null);
+});
+
+test('titleOutranksActor：同名且有片源（或比演员更热）的作品压过演员入口', () => {
+  const entry = { popularity: 6 };
+  const w = (o) => ({ name: '刘德华', available: false, tmdb: null, ...o });
+  assert.equal(agg.titleOutranksActor('刘德华', [], entry), false);
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ name: '刘德华演唱会', available: true })], entry), false, '只是包含不算');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ available: true })], entry), true, '资源站里有同名作品');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ tmdb: { popularity: 3 } })], entry), false, '同名 TMDB 作品没演员热');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ tmdb: { popularity: 30 } })], entry), true, '同名 TMDB 作品更热');
+});
+
 test('findSources：电影不把续集（流浪地球2）当自己的季；剧集的 庆余年2 仍是第 2 季', async () => {
   const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
   const tv = (o) => vod({ area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, ...o });
@@ -294,4 +348,230 @@ test('电影续集（TMDB 命中路径）：流浪地球2 精确同名排第一�
   assert.equal(works[0].key, 'movie-842675');
   assert.equal(works[0].sources.length, 2);
   assert.equal(works.find((w) => w.key === 'movie-535167').sources.length, 1);
+});
+
+// ── 0.1.2 匹配回归（tests/fixtures/match-regression.json，条目池取自真实资源站） ──
+import { readFileSync } from 'node:fs';
+const { mapCategory } = await import('../../src/lib/server/cms/categories.js');
+const { toSimplified } = await import('../../src/lib/server/search/normalize.js');
+const FIX = JSON.parse(readFileSync(new URL('../fixtures/match-regression.json', import.meta.url), 'utf8'));
+const poolVod = ([siteId, vodId, name, year, area, typeName, eps, actors]) => vod({
+  siteId, vodId, name, year, area, typeName, category: mapCategory(typeName), actors: actors ? actors.split(',') : [], lines: ep(eps || 1),
+});
+const like = (s) => toSimplified(s).toLowerCase();
+/** 假资源站：按「片名包含关键词」返回（苹果 CMS 的 wd 是 LIKE 搜索） */
+function sitesFrom(pool, terms = []) {
+  return async (kw) => { terms.push(kw); return Object.assign(pool.filter((v) => like(v.name).includes(like(kw))), { answered: 9 }); };
+}
+const keysOf = (list) => list.map((v) => `${v.siteId}:${v.vodId}`);
+const caseOf = (id) => FIX.cases.find((c) => c.id === id);
+
+for (const c of FIX.cases) {
+  test(`回归 findSources · ${c.id}：${c.cause}`, async () => {
+    const pool = c.pool.map(poolVod);
+    const terms = [];
+    agg._setDeps({ searchAll: sitesFrom(pool, terms), tmdb: { hasKey: () => false } });
+    const found = await agg.findSources(c.work, c.season);
+    const got = keysOf(found);
+    const names = (ks) => ks.map((k) => `${k} ${pool.find((v) => `${v.siteId}:${v.vodId}` === k)?.name}`).join(' / ');
+    if (c.only) {
+      const want = new Set(c.only);
+      const missing = c.only.filter((k) => !got.includes(k));
+      const extra = got.filter((k) => !want.has(k));
+      assert.deepEqual({ missing: names(missing), extra: names(extra) }, { missing: '', extra: '' }, `搜索词：${terms.join('|')}`);
+    }
+    const missing = (c.include || []).filter((k) => !got.includes(k));
+    assert.equal(names(missing), '', `漏了（搜索词：${terms.join('|')}）`);
+    const wrong = (c.exclude || []).filter((k) => got.includes(k));
+    assert.equal(names(wrong), '', '混进了别的作品');
+    assert.ok(new Set(terms).size <= 6, `搜索词太多：${terms.join('|')}`);
+  });
+}
+
+/** 用 fixture 的条目池跑 searchTitles，TMDB 只给一条 */
+async function searchCase(id, q, t) {
+  const c = caseOf(id);
+  const pool = c.pool.map(poolVod);
+  agg._setDeps({
+    searchAll: sitesFrom(pool),
+    tmdb: { hasKey: () => true, searchMulti: async () => [tm(t)], details: async () => ({ alternativeTitles: c.work.tmdb.alternativeTitles }) },
+  });
+  const works = await agg.searchTitles(q);
+  return { c, works, w: works.find((w) => w.key === `${t.type}-${t.id}`) };
+}
+
+test('回归 searchTitles · 长城：合拍片地区冲突仍对上 TMDB 条目', async () => {
+  const { c, w } = await searchCase('长城', '长城', { type: 'movie', id: 311324, name: '长城', originalName: 'The Great Wall', year: 2016, region: 'US', popularity: 30 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 创世纪：分部副标题的条目归到 TMDB 剧集', async () => {
+  const { c, w } = await searchCase('创世纪', '创世纪', { type: 'tv', id: 1358, name: '创世纪', originalName: '創世紀', year: 1999, region: 'HK', popularity: 10 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 性敢中环：TMDB 剧集 ↔ 资源站电影（没有剧集条目）也对上', async () => {
+  const { c, works, w } = await searchCase('性敢中环', '性敢中环', { type: 'tv', id: 91491, name: '性敢中环', originalName: '性敢中環', year: 2019, region: 'HK', popularity: 3 });
+  assert.ok(w?.available);
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+  assert.equal(works.length, 1);
+});
+
+test('回归 searchTitles · 奥德赛：2025 恐怖片不并进诺兰 2026', async () => {
+  const { c, w } = await searchCase('奥德赛', '奥德赛', { type: 'movie', id: 1368337, name: '奥德赛', originalName: 'The Odyssey', year: 2026, region: 'US', popularity: 200 });
+  assert.deepEqual(keysOf(w.sources).sort(), [...c.only].sort());
+});
+
+test('回归 searchTitles · 苍兰诀：动画版不并进真人剧', async () => {
+  const { works, w } = await searchCase('苍兰诀', '苍兰诀', { type: 'tv', id: 134303, name: '苍兰诀', originalName: '苍兰诀', year: 2022, region: 'CN', popularity: 20 });
+  assert.ok(w.sources.every((v) => !/动画/.test(v.name)));
+  assert.ok(works.every((x) => x.sources.every((v) => !/动画/.test(v.name))), '动画版不该出现在任何结果里');
+});
+
+test('findSources：同一关键词在短时间内只搜一次（逐部查可用性时复用）', async () => {
+  const c = caseOf('功夫');
+  const terms = [];
+  agg._setDeps({ searchAll: sitesFrom(c.pool.map(poolVod), terms), tmdb: { hasKey: () => false } });
+  await agg.findSources(c.work);
+  const n = terms.length;
+  await agg.findSources(c.work);
+  assert.equal(terms.length, n);
+});
+
+test('seasonOfVod：分部副标题 / 罗马数字也读出季号；电影恒为 1', () => {
+  assert.equal(agg.seasonOfVod({ name: '创世纪2：天地有情粤语' }, false), 2);
+  assert.equal(agg.seasonOfVod({ name: '少年包青天Ⅲ之天芒传奇' }, false), 3);
+  assert.equal(agg.seasonOfVod({ name: '庆余年第二季' }, false), 2);
+  assert.equal(agg.seasonOfVod({ name: '流浪地球2' }, true), 1);
+});
+
+test('回归 searchTitles · 三体：网飞《三体》（欧美剧类目、vod_area 带中国大陆）不并进腾讯版', async () => {
+  const { c, w } = await searchCase('三体（护栏）', '三体', { type: 'tv', id: 204541, name: '三体', originalName: '三体', year: 2023, region: 'CN', popularity: 30 });
+  const got = keysOf(w.sources);
+  assert.deepEqual(got.filter((k) => c.exclude.includes(k)), []);
+  assert.ok(c.include.every((k) => got.includes(k)));
+});
+
+test('回归 searchTitles · 黑暗荣耀：同名同年的内地剧 / 短剧不并进韩剧', async () => {
+  const { w } = await searchCase('黑暗荣耀（护栏）', '黑暗荣耀', { type: 'tv', id: 136283, name: '黑暗荣耀', originalName: '더 글로리', year: 2022, region: 'KR', popularity: 30 });
+  assert.deepEqual(keysOf(w.sources), ['1:10']);
+});
+
+test('searchTitles 的 TMDB 作品片源 = findSources 的判定（所有回归用例）', async () => {
+  const toCountry = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', west: 'US' };
+  for (const c of FIX.cases) {
+    if (c.season != null) continue;
+    const w = c.work;
+    const [type, id] = w.key.split('-');
+    const { w: hit } = await searchCase(c.id, w.name, { type, id: Number(id), name: w.name, originalName: w.originalName, year: w.year, region: toCountry[w.region], popularity: 10 });
+    const fs = keysOf(await agg.findSources(w));
+    const extra = keysOf(hit?.sources || []).filter((k) => !fs.includes(k));
+    assert.deepEqual(extra, [], `${c.id}：搜索结果比详情页多出的片源`);
+  }
+});
+
+test('acceptSources：rememberSearch 用的判定，把别的作品的条目筛掉', () => {
+  const c = caseOf('黑暗荣耀（护栏）');
+  const ok = agg.acceptSources(c.work, c.pool.map(poolVod));
+  assert.deepEqual(keysOf(ok), ['1:10']);
+});
+
+test('关键词缓存：有站没回应的结果不复用；站点配置变了不复用', async () => {
+  const c = caseOf('功夫');
+  const pool = c.pool.map(poolVod);
+  let calls = 0; let answered = 5; let ver = 1;
+  agg._setDeps({ searchAll: async (kw) => { calls++; return Object.assign(pool.filter((v) => like(v.name).includes(like(kw))), { answered, total: 9 }); },
+    sitesVersion: () => ver, tmdb: { hasKey: () => false } });
+  await agg.findSources(c.work);
+  const n = calls;
+  await agg.findSources(c.work);
+  assert.equal(calls, 2 * n, '部分站点没回应：下次重搜');
+  answered = 9;
+  await agg.findSources(c.work);
+  await agg.findSources(c.work);
+  assert.equal(calls, 3 * n, '全部回应：复用');
+  ver = 2;
+  await agg.findSources(c.work);
+  assert.equal(calls, 4 * n, '站点配置变了：重搜');
+});
+
+test('资源站作品的显示名去掉版本后缀和 $ 串；原名留在 rawName，findSources 仍拿它匹配', async () => {
+  const raw = '庆余年，全世界都以为我是废物太子$庆余年之大凉太子爷';
+  deps({ '繁花': [
+    vod({ siteId: 1, vodId: '5', name: '繁花普通话版', year: 2023, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, lines: ep(30) }),
+  ], [raw]: [vod({ siteId: 2, vodId: '7', name: raw, year: 2024, area: '大陆', typeName: '短剧', category: { kind: 'short', region: 'cn' } })] }, { key: false });
+  const [w] = await agg.searchTitles('繁花');
+  assert.equal(w.name, '繁花');
+  assert.equal(w.rawName, '繁花普通话版');
+  const [q] = await agg.searchTitles(raw);
+  assert.equal(q.name, '庆余年，全世界都以为我是废物太子');
+  // 详情页按这份作品找片源：资源站按「包含」搜，搜显示名也能搜到原名条目；判定时原名同样的条目照样对上
+  const hit = vod({ siteId: 2, vodId: '7', name: raw, year: 2024, area: '大陆', typeName: '短剧', category: { kind: 'short', region: 'cn' } });
+  deps({ [q.name]: [hit], [raw]: [hit] }, { key: false });
+  const found = await agg.findSources({ name: q.name, rawName: raw, originalName: '', year: 2024, region: 'cn', type: 'tv', kind: 'short' });
+  assert.deepEqual(found.map((v) => v.vodId), ['7']);
+});
+
+test('动画（TMDB genre 16）不出卡片：哪吒之魔童闹海有资源站片源（动作片类目）也不出，它的聚类也不退回成 cms 卡片', async () => {
+  const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
+  deps({ '哪吒之魔童闹海': [
+    m({ siteId: 1, vodId: '1', name: '哪吒之魔童闹海', year: 2025 }),
+    m({ siteId: 2, vodId: '2', name: '哪吒之魔童闹海', year: 2025 }),
+  ] }, { multi: [
+    tm({ type: 'movie', id: 980477, name: '哪吒之魔童闹海', originalName: '哪吒之魔童闹海', year: 2025, region: 'CN', popularity: 80, genreIds: [16, 28, 14, 12] }),
+  ] });
+  const works = await agg.searchTitles('哪吒之魔童闹海');
+  assert.deepEqual(works, []);
+  assert.ok(!calls.searchAll.some((t) => t !== '哪吒之魔童闹海' && t !== '哪吒之魔童鬧海'), `不为动画做二轮搜索：${calls.searchAll}`);
+});
+
+test('动画不出卡片，同名真人作品照常出', async () => {
+  deps({ '斗罗大陆': [
+    vod({ siteId: 1, vodId: '1', name: '斗罗大陆', year: 2018, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' } }),
+    vod({ siteId: 1, vodId: '2', name: '斗罗大陆', year: 2021, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' } }),
+  ] }, { multi: [
+    tm({ id: 76572, name: '斗罗大陆', year: 2018, region: 'CN', popularity: 60, genreIds: [16, 10759] }),
+    tm({ id: 108545, name: '斗罗大陆', year: 2021, region: 'CN', popularity: 20, genreIds: [18] }),
+  ] });
+  const works = await agg.searchTitles('斗罗大陆');
+  assert.deepEqual(works.map((w) => w.key), ['tv-108545']);
+  assert.deepEqual(works[0].sources.map((v) => v.vodId), ['2']);
+});
+
+test('演员作品去掉动画（searchActor / searchActorQuick / 入口卡部数）', async () => {
+  const credits = [
+    tm({ id: 11, name: '花千骨', year: 2015, region: 'CN', popularity: 10, genreIds: [18] }),
+    tm({ id: 13, name: '某动画', year: 2020, region: 'CN', popularity: 30, genreIds: [16] }),
+    tm({ id: 14, type: 'movie', name: '某动画电影', year: 2021, region: 'CN', popularity: 30, genreIds: [16, 28] }),
+  ];
+  const persons = [{ id: 1, name: '赵丽颖', originalName: '赵丽颖', popularity: 9, profile: null, works: [] }];
+  deps({}, { persons, credits });
+  assert.deepEqual((await agg.searchActor('赵丽颖')).works.map((w) => w.key), ['tv-11']);
+  assert.deepEqual((await agg.searchActorQuick('赵丽颖')).works.map((w) => w.key), ['tv-11']);
+  assert.equal((await agg.findActorEntry('赵丽颖')).workCount, 1);
+});
+
+test('片名搜索用 quick 模式；不完整的 quick 结果不复用，也不给 findSources 用', async () => {
+  const opts = [];
+  let answered = 7;
+  const v = vod({ siteId: 1, vodId: '5', name: '繁花', year: 2023, category: { kind: 'tv', region: 'cn' } });
+  agg._setDeps({ searchAll: async (kw, o) => { opts.push(!!o?.quick); return Object.assign(kw === '繁花' ? [v] : [], { answered, total: 9 }); }, tmdb: { hasKey: () => false } });
+  await agg.searchTitles('繁花');
+  assert.ok(opts.length && opts.every(Boolean), '片名搜索全走 quick');
+  const n = opts.length;
+  await agg.searchTitles('繁花');
+  assert.equal(opts.length, 2 * n, '不完整：下次重搜');
+  await agg.findSources({ name: '繁花', year: 2023, type: 'tv' });
+  assert.ok(opts.slice(2 * n).length > 0 && opts.slice(2 * n).every((q) => !q), 'findSources 等齐、不拿 quick 的结果');
+  // quick 碰巧等齐了：完整结果两种模式都复用
+  answered = 9;
+  agg._setDeps({ searchAll: async (kw, o) => { opts.push(!!o?.quick); return Object.assign(kw === '繁花' ? [v] : [], { answered, total: 9 }); }, tmdb: { hasKey: () => false } });
+  opts.length = 0;
+  await agg.searchTitles('繁花');
+  const m = opts.length;
+  await agg.searchTitles('繁花');
+  await agg.findSources({ name: '繁花', year: 2023, type: 'tv' });
+  assert.equal(opts.length, m, '完整的 quick 结果被复用（片名搜索和 findSources 都不再搜）');
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { candidates, candLabel, sameEp } from '../../src/lib/lines.js';
+import { candidates, candLabel, candParts, sameEp } from '../../src/lib/lines.js';
 import { posterUrl } from '../../src/lib/work.js';
 import { isFinished } from '../../src/lib/progress.js';
 
@@ -18,10 +18,41 @@ test('candidates：集数最全优先，同集数按延迟；手动选过的排�
   assert.deepEqual(candidates(s, { siteId: 9, line: 'x' }).map((c) => c.line), ['L2', 'L1', 'L3'], '偏好不存在时不影响');
 });
 
-test('candLabel：条目名和作品名不同才带上', () => {
-  const [c] = candidates([src(1, 1, 'a', '繁花[沪语版]', [{ name: '360zy', episodes: eps(2) }])]);
-  assert.equal(candLabel(c, '繁花'), '站1 · 360zy · 繁花[沪语版]');
-  assert.equal(candLabel({ ...c, vodName: '繁花' }, '繁花'), '站1 · 360zy');
+test('candLabel：不显示线路代号；站点只有一条线路时只写站名；条目显示名和作品名不同才带上；语言标签在最后', () => {
+  // 服务端 decorate 给的：name 原名、title 显示名、lang 语言标签
+  const [c] = candidates([{ ...src(1, 1, 'a', '繁花[沪语版]', [{ name: '360zy', episodes: eps(2) }]), title: '繁花', lang: '沪语' }]);
+  assert.equal(candLabel(c, '繁花'), '站1 · 沪语');
+  assert.deepEqual(candParts(c, '繁花'), { text: '站1', lang: '沪语' });
+  assert.equal(c.line, '360zy', '线路偏好仍按内部线路名记');
+  const [d] = candidates([{ ...src(1, 1, 'a', '繁花 第二季', [{ name: 'x', episodes: eps(2) }]), title: '繁花 第二季' }]);
+  assert.equal(candLabel(d, '繁花'), '站1 · 繁花 第二季');
+  assert.equal(candLabel({ ...d, vodName: '繁 花' }, '繁花'), '站1', '只差空白 / 标点不算不同');
+});
+
+test('candidates：同站两条以上线路才编「线路 N」，按（条目 id，线路顺序）编号，和排序 / 偏好 / 片源先后无关；线路名里的语言优先', () => {
+  const s = [src(1, 1, 'a', '无间道', [{ name: 'l1', episodes: eps(1) }, { name: 'l2', lang: '粤语', episodes: eps(3) }])];
+  s[0].lang = '国语';
+  const list = candidates(s, { siteId: 1, line: 'l1' });
+  assert.deepEqual(list.map((c) => [c.line, c.lineNo, c.lang]), [['l1', 1, '国语'], ['l2', 2, '粤语']]);
+  assert.deepEqual(candidates(s).map((c) => c.lineNo), [2, 1]);
+  assert.deepEqual(list.map((c) => candLabel(c, '无间道')), ['站1 · 线路 1 · 国语', '站1 · 线路 2 · 粤语']);
+  // 同站两个条目各一条线路（普通话版 / 沪语版）：跨条目编号，片源顺序反过来编号不变；别的站只有一条不编号
+  const a = { ...src(2, 1, '10', '繁花', [{ name: 'm', episodes: eps(30) }]), title: '繁花' };
+  const b = { ...src(2, 1, '9', '繁花[沪语版]', [{ name: 'm', episodes: eps(29) }]), title: '繁花', lang: '沪语' };
+  const o = src(3, 1, '5', '繁花', [{ name: 'q', episodes: eps(30) }]);
+  for (const order of [[a, b, o], [o, b, a]]) {
+    const labels = Object.fromEntries(candidates(order).map((c) => [c.id, candLabel(c, '繁花')]));
+    assert.deepEqual(labels, { '2:10:m': '站2 · 线路 2', '2:9:m': '站2 · 线路 1 · 沪语', '3:5:q': '站3' });
+  }
+});
+
+test('candidates：降权的站（weight < 0）排最后，哪怕集数最全；手动选过的仍排第一', () => {
+  const s = [
+    { ...src(9, 50, 'a', '繁花', [{ name: '360zy', episodes: eps(30) }]), weight: -10 },
+    src(1, 800, 'b', '繁花', [{ name: 'L1', episodes: eps(20) }]),
+  ];
+  assert.deepEqual(candidates(s).map((c) => c.siteId), [1, 9]);
+  assert.deepEqual(candidates(s, { siteId: 9, line: '360zy' }).map((c) => c.siteId), [9, 1]);
 });
 
 test('sameEp：先按集名，再按下标，越界 -1', () => {

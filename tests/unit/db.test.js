@@ -44,3 +44,32 @@ test('setting 读写删', () => {
   setSetting('a', null);
   assert.equal(getSetting('a'), undefined);
 });
+
+test('迁移第 3 步：老库里内置且仍是缺省权重的 360资源降权；用户加的 / 改过的不动', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { STEPS, migrate } = await import('../../src/lib/server/migrate.js');
+  const d = new DatabaseSync(':memory:');
+  d.exec('CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)');
+  for (const s of STEPS.filter((s) => s.version < 3)) { d.exec(s.sql); d.prepare('INSERT INTO schema_version VALUES (?, 0)').run(s.version); }
+  const API = 'https://360zy.com/api.php/provide/vod';
+  d.prepare('INSERT INTO site (name, api, builtin) VALUES (?, ?, 1)').run('360资源', API);
+  d.prepare('INSERT INTO site (name, api, builtin) VALUES (?, ?, 1)').run('量子资源', 'https://a.test/api');
+  d.prepare('INSERT INTO site (name, api, builtin) VALUES (?, ?, 0)').run('自己加的', 'https://b.test/api');
+  migrate(d);
+  const w = (api) => d.prepare('SELECT weight FROM site WHERE api = ?').get(api).weight;
+  assert.equal(w(API), -10);
+  assert.equal(w('https://a.test/api'), 0);
+  assert.equal(w('https://b.test/api'), 0);
+  // 用户改过权重的不覆盖（步骤只跑一次，这里直接重放 SQL 验证条件）
+  d.prepare('UPDATE site SET weight = 5 WHERE api = ?').run(API);
+  d.exec(STEPS.find((s) => s.version === 3).sql);
+  assert.equal(w(API), 5);
+});
+
+test('首次启动写入的内置站点带缺省权重（360资源最低）', async () => {
+  const { listSites } = await import('../../src/lib/server/cms/sites.js');
+  const list = listSites();
+  const s360 = list.find((s) => s.api.includes('360zy'));
+  assert.ok(s360 && s360.weight < 0);
+  assert.equal(list.at(-1).id, s360.id, '站点列表按权重排，360 在最后');
+});

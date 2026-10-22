@@ -20,7 +20,17 @@ const SCHEMA = await loadSchema();
 
 /** version 必须从 1 连续递增 */
 export const STEPS = [
-  { version: 1, sql: SCHEMA }
+  { version: 1, sql: SCHEMA },
+  // 0.1.2：season 非空 = 该 cms 作品是 TMDB 多季剧里的这一季（并进来时 cms 进度的季号改成它）；cms-<站>-<id> 作品匹配到 TMDB 作品后登记别名，进度 / 想看 / 线路偏好跨 key 合并（见 library.js registerAlias）
+  { version: 2, sql: `CREATE TABLE IF NOT EXISTS key_alias (
+      alias TEXT PRIMARY KEY,
+      key   TEXT NOT NULL,
+      season INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS key_alias_key ON key_alias (key);` },
+  // 0.1.2：内置的 360资源（画面烧录博彩字幕）降权到最低（同 sites.default.js 的 LOW_WEIGHT）。
+  // 只改内置且权重仍是缺省 0 的那一行，用户加的 / 改过的不动；新装时表是空的，这步什么也不做（seed 直接带权重写入）
+  { version: 3, sql: `UPDATE site SET weight = -10 WHERE builtin = 1 AND weight = 0 AND api = 'https://360zy.com/api.php/provide/vod';` }
 ];
 
 export function migrate(d) {

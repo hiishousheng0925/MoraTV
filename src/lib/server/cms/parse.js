@@ -33,6 +33,56 @@ export function parsePlay(from, url) {
   return lines;
 }
 
+/**
+ * 语言 / 配音版本词 -> 显示用标签（片源行的小标签）。顺序有意义：「国粤双语」先于「国语」「粤语」。
+ * 只放语言类；「导演剪辑版 / 未删减版」是另一种区分，留在名字里。
+ */
+const LANG_WORDS = [
+  ['国粤双语', '双语'], ['中英双语', '双语'], ['国英双语', '双语'], ['粤英双语', '双语'], ['国粤', '双语'], ['双语', '双语'],
+  ['普通话', '国语'], ['国语', '国语'], ['國語', '国语'], ['国配', '国语'], ['台配', '国语'],
+  ['粤语', '粤语'], ['粵語', '粤语'], ['粤配', '粤语'],
+  ['原声', '原声'], ['原聲', '原声'], ['沪语', '沪语'], ['闽南语', '闽南语'],
+];
+const LANG_ALT = LANG_WORDS.map(([w]) => w).join('|');
+const LANG_TAG = Object.fromEntries(LANG_WORDS);
+// 末尾的「[沪语版]」「（国语）」
+const LANG_BRACKET = new RegExp(`[\\[(（【]\\s*(${LANG_ALT})\\s*版?\\s*[\\])）】]$`);
+// 末尾的「普通话版」「粤语」「国语刘德华版」（语言词后面最多 4 个字的版本说明，必须以「版」结尾）
+const LANG_TAIL = new RegExp(`(${LANG_ALT})(?:[\\u4e00-\\u9fff]{1,4}版|版)?$`);
+// 首尾的分隔符；半角句点不算（「V.I.P.」）
+const EDGE_PUNCT = /^[\s\-—–_·・,，。:：;；|/、]+|[\s\-—–_·・,，。:：;；|/、]+$/g;
+const EMPTY_BRACKETS = /[\[(（【]\s*[\])）】]/g;
+
+/**
+ * 资源站条目名 -> 显示名 + 语言标签：去掉 `$` 及其后的串、末尾的语言版本后缀（作为 lang 另给）、首尾空白和多余标点。
+ * 只用于显示：匹配仍用原名（normTitle 自己会剥版本后缀）。整串就是语言词时不剥。
+ * @param {string} raw @returns {{title: string, lang: string|null}}
+ */
+export function cleanName(raw) {
+  let s = String(raw ?? '');
+  // 取 `$` 前面的那段；以 `$` 开头时取第一段非空的
+  if (s.includes('$')) s = s.split('$').find((x) => x.trim()) ?? '';
+  s = s.replace(EMPTY_BRACKETS, '').replace(/\s+/g, ' ').replace(EDGE_PUNCT, '');
+  let lang = null;
+  for (const re of [LANG_BRACKET, LANG_TAIL]) {
+    const m = s.match(re);
+    if (!m) continue;
+    const head = s.slice(0, m.index).replace(EDGE_PUNCT, '');
+    if (!head) continue;
+    lang = LANG_TAG[m[1]];
+    s = head;
+    break;
+  }
+  return { title: s, lang };
+}
+
+/** 线路名 / 任意串里出现的语言词（「粤语m3u8」-> 粤语）；没有返回 null */
+export function langOf(s) {
+  const t = String(s ?? '');
+  const w = LANG_WORDS.find(([k]) => t.includes(k));
+  return w ? w[1] : null;
+}
+
 const clean = (s) => String(s ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
 
 /** @param {any} raw @param {number} siteId */

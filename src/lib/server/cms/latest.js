@@ -10,6 +10,7 @@
 import { cached } from '../cache.js';
 import { listSites, recordResult } from './sites.js';
 import { latestBySite } from './client.js';
+import { cleanName } from './parse.js';
 import { normTitle, regionOfArea } from '../search/normalize.js';
 
 export const LATEST_KINDS = ['tv', 'movie', 'variety'];
@@ -18,6 +19,7 @@ const USE_SITES = 2;     // 取几个站
 const MAX_TRIES = 4;     // 最多试几个站（前面的没回应就往后换）
 const PAGES = 3;         // 每站最多翻几页（电影更新少，要多翻）
 const ROW = 16;
+const REGION_QUOTA = 4;  // 每排每个地区最多几张，免得被一个地区刷屏
 const HOURS = 168;       // 只看最近一周内更新的
 
 const DEFAULT_DEPS = { listSites, latestBySite, recordResult };
@@ -53,7 +55,7 @@ const toItem = (v) => {
   const r = v.category.region;
   return {
     key: `cms-${v.siteId}-${v.vodId}`,
-    name: v.name,
+    name: cleanName(v.name).title || v.name,
     poster: v.pic || null,
     year: v.year,
     region: r && r !== 'other' ? r : regionOfArea(v.area),
@@ -74,17 +76,26 @@ export async function collectLatest() {
     const res = await Promise.all(batch.map((s) => fromSite(s).catch(() => null)));
     res.forEach((r) => { if (r) got.push(r); });
   }
-  if (!got.length) throw new Error('资源站都没有回应');
+  if (!got.length) throw Object.assign(new Error('资源站都没有回应'), { noSiteAnswered: true }); // 首页据此提示「资源站暂时连不上」
   // 各站合并后按更新时间倒序（同一格式的时间串直接比字符串），稳定排序保持站点健康度先后
   const all = got.flat().sort((a, b) => (b.time || '').localeCompare(a.time || ''));
   const rows = Object.fromEntries(LATEST_KINDS.map((k) => [k, []]));
-  const seen = new Set();
+  const seen = new Map();   // 规范化片名 -> 已收的年份（null 年份与任何年份视为同一部）
+  const perRegion = Object.fromEntries(LATEST_KINDS.map((k) => [k, new Map()]));
   for (const v of all) {
-    const id = `${normTitle(v.name) || v.name}|${v.year ?? ''}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
     const row = rows[v.category.kind];
-    if (row.length < ROW) row.push(toItem(v));
+    if (row.length >= ROW) continue;
+    const t = normTitle(v.name) || v.name;
+    const ys = seen.get(t);
+    const y = v.year ?? null;
+    if (ys && (ys.has(y) || ys.has(null) || y == null)) continue;
+    const item = toItem(v);
+    const rk = item.region || 'other';
+    const cnt = perRegion[v.category.kind];
+    if ((cnt.get(rk) || 0) >= REGION_QUOTA) continue;
+    cnt.set(rk, (cnt.get(rk) || 0) + 1);
+    (ys || seen.set(t, new Set()).get(t)).add(y);
+    row.push(item);
   }
   // 站点回了但三排全空（时间窗里没东西 / 全被滤掉）：当失败处理，不缓存 30 分钟的空首页
   if (LATEST_KINDS.every((k) => !rows[k].length)) throw new Error('最近更新为空');
@@ -92,5 +103,5 @@ export async function collectLatest() {
 }
 
 export function latestRows() {
-  return cached('cms:latest:v1', TTL_SEC, collectLatest);
+  return cached('cms:latest:v2', TTL_SEC, collectLatest);
 }

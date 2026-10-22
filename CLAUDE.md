@@ -90,11 +90,54 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 | `onback` `immersive` | 窄窗口左上角返回；铺满时留着并写片名 |
 | `onlike` `liked` | 可选。右上角爱心；不传不显示 |
 | `onshot(blob\|null, t)` | 可选。右上角截图键；不传不显示 |
+| `theater` `ontheater` | 可选。剧场模式按钮（控制条，画中画右边）+ T 键；不传不显示。布局由调用方换（播放页只在 `media.huge` 即窗口宽 ≥ 1800 时传，开关记在 `moratv.player.theater`） |
 
-快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集；倍速、音量记在 localStorage（`moratv.player.*`）。
+快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集，T 剧场模式（传了 ontheater 时）；倍速、音量记在 localStorage（`moratv.player.*`）。
 
 其余组件：`Chip` `Select` `Sheet` `Confirm` `Pager` `CardGrid`（+ `PosterCard`，作品字段 `key/title/poster/year/region/kind/badge/progress/sub`，链接 `/title/<key>`）`EpisodePicker`（`eps/roads/road/onroad/curI/watched/onplay`）`TabBar`（页内标签）`SettingsGroup` `Toggle` `SearchBox` `EmptyState` `Section` `Page` `Progress` `ThemeToggle` `BrandMark`；样式常量 `btn.js` `bar.js` `grid.js`。
 
 ## 数据库
 
 表（设计文档 §9）：`setting site title progress last_watch favorite line_pref cache`，外加 `schema_version`。迁移规则见 `migrate.js` 头注释。`schema.sql` 在 vite 构建时靠 `?raw` 打进产物，直接用 node 跑（单元测试）时退回读文件。
+
+## 片名匹配（`src/lib/server/search/`，0.1.2 起）
+
+- `normalize.js`：`normRoman(s)`（Ⅰ–Ⅻ / 中文片名里的 II、III → 阿拉伯数字）**已并进 `normTitle` / `seasonOf`**；`stripPartSubtitle(s)`（「片名N：副标题」「片名之副标题」「HIStory3-圈套」→ `{base, part}`）是**单独导出**，不并进 `normTitle`——电影「无间道3：终极无间」是独立作品，只有剧集匹配才拆；`regionsOfArea(area)` 返回 vod_area 里的全部地区。
+- `aggregate.js` 的匹配规则写在文件头注释里（搜索聚类和 `findSources` 共用）：地区只在年份对不上时才拒；剧集 ↔ 电影形态冲突只在没有形态相符条目时按同名同年兜底；电影比「规范名 + 续集号」，年份差 1 要演员有交集；片名带「（动画版）」「[解说]」的条目直接丢。判定本身是 `acceptSources(work, vods, season?)`：`findSources`、搜索结果里 TMDB 作品的片源、`rememberSearch` 三处共用，**搜索卡片的片源不能比详情页多**（有回归测试）。`findSources` 搜主名 + 原名 + 全部中文别名（`tmdb.details` 把 translations 的 zh 译名排在别名最前），最多 6 个词，同词 10 分钟内复用。
+- 回归用例：`tests/fixtures/match-regression.json`（条目池取自真实资源站），改匹配逻辑先跑它。
+- `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
+- 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。`quick` 模式（**只给片名搜索 `searchTitles` 用**）：除最慢的 2 个站外都做完（含第 2 页）后再等 500 ms 就返回，没做完的站不算 `answered`，结果当不完整、不进关键词复用；`findSources`（详情页 / 可用性）照旧等齐所有站。
+- TMDB 动画（genre 16，`EXCLUDE_GENRES[0]`）在片名搜索里照样认领资源站聚类（资源站常把动画电影放进「动作片」），但不出卡片、不为它做二轮搜索；演员作品 / 入口卡部数也去掉动画。
+
+## 显示名 / 片源行（0.1.2 起）
+
+- 资源站条目名只在**显示**时清洗：`cms/parse.js` 的 `cleanName(raw) -> {title, lang}`（去 `$` 及其后、末尾「普通话版 / 粤语版 / [沪语版] / 国语刘德华版」→ lang、首尾标点）。vod 的 `name` 永远是原名（匹配、`normTitle` 用它）。资源站作品（聚类 / 详情 / 最近更新）的 `name` 是清洗后的，原名放 `rawName`，`workNames` 把它也算进去，所以匹配不会因为显示名变短而丢片源。
+- `sourcesFor` 的片源带 `title`（显示名）`lang` `weight`，线路带 `lang`（线路名里的语言词）。片源行 = `lines.js candParts`：「站点」，这个站给这部作品两条以上线路时「站点 · 线路 N」（N 按（条目 id，条目里的线路顺序）编号，不随排序 / 偏好变），条目显示名和作品名不同才带上，lang 单独做小标签；**线路偏好 line_pref 仍按内部线路名（vod_play_from）记**。
+- 站点 `weight < 0` 的片源排最后（手动选过的仍排第一）。内置 360资源（画面烧录博彩字幕）缺省 `LOW_WEIGHT`=-10；老库靠迁移第 3 步改（只改 builtin 且仍为 0 的那行）。
+- TMDB：角色名没有汉字就不显示（`zhCharacter`）；zh-CN 下仍是英文的剧集类型按 id 换中文（`genreNames`），资源站类目名只有像题材（「动作片」→ 动作）才当类型。
+
+## 演员搜索（0.1.2 起）
+
+- 自动模式（`/api/search?mode=auto`）：片名搜索和 `findActorEntry(q)`（TMDB 人物，名字 / 原名繁简不敏感地完全相同、popularity ≥ 2、有作品）**并行**，`titleOutranksActor` 判定同名作品（有片源，或 TMDB 作品比这位演员更热）更像用户要的就不放入口卡；入口卡 = 响应里的 `actorCard {id,name,profile,workCount}`，点进 `mode=actor&person=<id>`。
+- 演员模式没 key / TMDB 查无此人 → `searchActorSites(q)`：名字当关键词搜各站（复用 `searchTerm` 缓存），只留 `vod_actor` 里有整个名字的条目（`actorKey` 繁简 / 间隔号不敏感），跳过综艺，再走 `cluster` → cms 作品，响应带 `bySites: true`。自动模式片名搜索没结果时同样回退到它。召回取决于资源站是否按演员字段匹配关键词（实测每个明星 20–40 部，随站点响应波动）。
+- 搜索页空状态统一「没有结果」，不带关键词、不带说明。
+
+## 推荐 / 浏览候选（0.1.2 起）
+
+- **规则只有一处**：`tmdb.js` 的 `EXCLUDE_GENRES`（16 动画 / 10762 少儿 / 10763 新闻 / 10767 脱口秀）+ 评分人数门槛 `minVotesFor(region)`（港 / 台 `MIN_VOTES_LOW`=5，其余 `MIN_VOTES`=20；HK 剧集 ≥20 票的只有个位数）+ `recommendable(t, {keep, minVotes})`。`discover()` 在请求里带 `without_genres` / `vote_count.gte` 并再过一遍 `recommendable`（综艺 `kind:'variety'` 用 `keep:[10767]` 留脱口秀）；`trending()` 不支持这些参数，**原样返回**，调用方自己 `.filter((t) => tmdb.recommendable(t))`。浏览页 / 其他列表要复用这套，别另写类型表。`mapItem` 带出 `genreIds` / `voteCount` 就是为了它。
+- `tmdb.details().name` 是显示名：zh-CN 译名 → 华语原作（original_language zh / cn）用原名 → zh-TW / HK / SG 译名 → 原名。
+- 首页推荐排：`works.js` 的 `recommendRows(rows, {need, min})`。每排拉 2 页候选，按排顺序挑：跨排去重、预查 `availability`（全局并发 6，带优先级：前面的排先查）、没片源的直接移除、名字 / 海报换成详情的，凑不满 `min`（6）张整排返回 `[]`。每排各自一个 promise，页面逐排流式渲染。任何一次预查抛 `NoSiteAnswered` → 之后不再预查、各排按 TMDB 原样返回（`available: null`），`sitesDown` 解析为 true，页面 toast 一次「资源站暂时连不上」；不写负缓存（availability 本身就不缓存这种结果）。其他预查错误当没片源跳过，每种错误 `console.warn` 一次。
+- 首页包了一层 stale-while-revalidate（`home.js` `homeRecommend(defs, candidates, opts)`）：上次算好的各排存在 cache 表 `home:rows:v1`（3 天）；有存货就立刻给数组、后台重算（存货不到 10 分钟不重算；并发打开共用一次），结果经 `data.fresh` 给页面，页面只替换「新旧都有内容」的排（不增删排，不跳）；没存货才走逐排流式。资源站全挂时算出来的不存。「资源站暂时连不上」只在 `sitesDown`（推荐预查或最近更新确实没有站回应，`latest.js` 抛的错带 `noSiteAnswered`）时弹。
+
+## 进度跨 key 合并（0.1.2 起）
+
+- 没填 TMDB key 时看的作品 key 是 `cms-<站>-<id>`，填 key 后同一部变成 `tv-/movie-<id>`。表 `key_alias(alias, key, season)`（迁移第 2 步）记「cms key = TMDB key」。
+- 登记点只有一处：`works.js` 的 `linkAliases`，**只在用户打开作品时**由 `sourcesFor(work, season, { link: true })`（`/api/sources`，详情 / 播放页）在 TMDB 作品的**已通过匹配判定**的片源上调用 `library.registerAlias`；搜索（`rememberSearch`）和首页可用性预查不登记。`registerAlias` 只登记 cms key 下**已有片库记录**（进度 / last_watch / 想看 / 线路偏好）的，没东西可并的不登记（登记是永久的、没有解除，误认领只会带来重定向）。先到先得，不改已有登记；多季剧按条目自己的季号登记（`season` 列，并过去时 cms 记录的季号改成它；认不出季按第 1 季），单季 / 电影不传。
+- `registerAlias` 在事务里把 cms key 的进度 / last_watch / 想看 / 线路偏好并进 TMDB key：同一集留 `updated_at` 较新的，想看留较早的加入时间，线路偏好 TMDB 已有则不动；之后 library 的读写入口（saveProgress / getProgress / favorite / linePref / removeHistory）都先 `resolveKey`，cms 详情 / 播放页 load 里 `resolveKey` 不同就 307 到 TMDB 那份。
+
+## 浏览页（0.1.2 起）
+
+- 筛选全在 URL：`kind`（缺省剧集）`region` `g`（题材）`net=tvb` `sort=new|score` `dec=2020s|2010s|2000s|old` `p` `src`（没 key 时翻页固定的站）。解析 / 校验在 `server/browse.js` 的 `parseQuery`，不适用的值直接丢（华语剧没有「科幻」、TVB 只在剧集 · 香港、综艺 / 纪录片不叠题材）。
+- 题材表 `src/lib/genres.js`（前后端共用）：华语题材靠 TMDB keyword（id 是实测的，别凭名字猜），西式题材用 genre，剧集 / 电影 genre 不同的分开写；TVB = network 48，和题材叠加（TVB × 犯罪 = 警匪）。
+- 有 key：`tmdb.discover(type, {region, kind, filter, sort, range, page})`，出站参数在 `discoverParams`（可单测）。剧集带题材时评分人数门槛降到 `MIN_VOTES_LOW`（内地谍战 ≥20 票只有 1 部）；按评分排抬到 `SCORE_MIN_VOTES`（港台 / 带题材的剧集用 `_LOW`）；「最新」只看日期 ≤ 今天；`EXCLUDE_KEYWORDS`（情色关键词）一律 `without_keywords`。港产三级剥削片 TMDB 不标 adult：`blockedMovieIds()` 用「香港分级 III ∩ 香港出品 ∩ 性暴力 / 情色关键词（`CAT3_KEYWORDS`）」圈出片单（实测 49 部，缓存 7 天，失败当空、10 分钟内不重试），discover / trending / searchMulti / searchPerson / personCredits 都按 id 去掉；单用分级会误伤《黑社会》，单用 rapist 关键词会误伤《恐怖角》（有回归测试）。题材 chip 只显示有内容的：`genreCounts` 每个题材一次 `discoverCount`（total_results，全局并发 4），整组缓存 2 天（有失败的只 10 分钟），流式给页面，不挡结果。
+- 没 key：资源站分类。`pickCategories`：地区正好对上一个类目就 `t=<id>`；「全部」取这个形态的全部末级类目（大类 `t=` 不含子类目，是空的），每个类目每页出 20 的约数条（`perCategory`，合起来 ≤48）按更新时间合并，翻页不漏不重；没有对应类目（按地区看电影、港台综艺）取地区不明的类目按 `vod_area` 本地筛。类目页缓存 30 分钟、分类树 1 天。没有题材 / 排序 / 年代。

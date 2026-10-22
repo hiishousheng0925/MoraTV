@@ -8,8 +8,8 @@
 
 const KINDS = [
   // 动漫不做；体育 / 资讯 / 预告 / 解说 / 伦理等不是剧也不是电影，一并丢弃
-  ['drop', /动漫|动画|漫画|伦理|三级|里番|理论|预告|解说|演唱会|资讯|新闻|公告|头条|演员|体育|赛事|足球|篮球|网球|台球|斯诺克|NBA/i],
-  ['short', /短剧|古装仙侠|现代都市|穿越年代|言情总裁|重生民国/],
+  ['drop', /动漫|动画|漫画|伦理|三级|里番|理论|福利|写真|热舞|两性|擦边|漫剧|动态漫|预告|解说|演唱会|资讯|新闻|公告|头条|演员|体育|赛事|足球|篮球|网球|台球|斯诺克|NBA/i],
+  ['short', /短剧|古装仙侠|现代都市|穿越年代|年代穿越|言情总裁|重生民国|爽剧|女频|男频|甜宠|脑洞|逆袭|闪婚|现代言情|女恋|总裁|爽文/],
   ['variety', /综艺|真人秀|脱口秀/],
   ['doc', /纪录|记录/],
   ['movie', /电影|片$/],
@@ -33,6 +33,8 @@ export function mapCategory(typeName) {
   const kind = KINDS.find(([, re]) => re.test(n))?.[0];
   if (!kind) return { kind: 'other', region: null };
   if (kind === 'drop') return { kind, region: null };
+  // 「港台综艺」这类名字里港、台并列：地区不明，交给调用方用 vod_area 判
+  if (/港/.test(n) && /台/.test(n)) return { kind, region: null };
   const region = REGIONS.find(([, re]) => re.test(n))?.[0] ?? null;
   return { kind, region };
 }

@@ -41,7 +41,7 @@ function stripBrackets(s) {
  * base 仍带空格（调用方再去标点），season 为读到的季号或 null。
  */
 function peel(input) {
-  let s = stripBrackets(toSimplified(input).toLowerCase()).replace(PUNCT, ' ').trim();
+  let s = stripBrackets(toSimplified(normRoman(input)).toLowerCase()).replace(PUNCT, ' ').trim();
   let season = null;
   for (let guard = 0; guard < 6; guard++) {
     const before = s;
@@ -68,6 +68,42 @@ function peel(input) {
     if (n >= 1 && n <= 30) return { base: m[1], season: season ?? n };
   }
   return { base: compact, season };
+}
+
+const LATIN_ROMAN = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10 };
+
+/**
+ * 罗马数字 -> 阿拉伯数字：Ⅰ–Ⅻ / ⅰ–ⅻ 一律转；拉丁字母写的 II / III / IV…只在中文片名里、紧跟汉字（可隔空格）且后面是结尾 / 空白 / 标点 / 数字时转（「我的I人」不动）
+ * （「無間道III: 終極無間」→「無間道3: 終極無間」；「Rocky II」「VIP」不动）。
+ * @param {string} s
+ */
+export function normRoman(s) {
+  let t = String(s ?? '').replace(/[Ⅰ-Ⅻⅰ-ⅻ]/g, (c) => String(((c.charCodeAt(0) - 0x2160) % 16) + 1));
+  if (CJK.test(t)) t = t.replace(/(?<=[㐀-鿿]\s*)(VIII|VII|VI|IV|IX|III|II|X|V|I)(?=$|[\s\p{P}\d])/gu, (m) => String(LATIN_ROMAN[m]));
+  return t;
+}
+
+const PART_NUM = /^(.*?\D)\s*(?:第\s*([零〇一二两三四五六七八九十\d]+)\s*[部季]|(\d{1,2}))$/;
+const PART_SEP = /^(.+?)\s*(?:[:：\-—–·|]|(?<=[㐀-鿿\d])之)\s*(.+)$/;
+
+/**
+ * 「片名N：副标题」「片名 第N部：副标题」「片名之副标题」「HIStory3-圈套」-> { base: 片名, part: N|null }；没有副标题返回 null。
+ * base 已转简体、罗马数字已转；只给剧集匹配用（电影的「无间道3：终极无间」是独立作品，不能拆）。
+ * @param {string} s
+ */
+export function stripPartSubtitle(s) {
+  const t = normRoman(toSimplified(String(s ?? ''))).trim();
+  const m = t.match(PART_SEP);
+  if (!m) return null;
+  let head = m[1].trim();
+  let part = null;
+  const n = head.match(PART_NUM);
+  if (n) {
+    const v = n[2] != null ? parseNum(n[2]) : parseInt(n[3], 10);
+    if (v != null && v >= 1 && v <= 30) { head = n[1].trim(); part = v; }
+  }
+  if (head.replace(PUNCT, '').length < 2) return null;
+  return { base: head, part };
 }
 
 /** 只去空白和标点、保留数字的片名键（区分「流浪地球」和「流浪地球2」） */
@@ -100,6 +136,13 @@ export function regionOfArea(area) {
   const a = toSimplified(area).trim();
   if (!a) return null;
   return AREA.find(([, re]) => re.test(a))?.[0] ?? null;
+}
+
+/** 资源站 vod_area 里出现的全部地区码（「中国大陆 / 美国」-> [cn, west]；「中国香港」不算大陆）；空 / 认不出返回 [] */
+export function regionsOfArea(area) {
+  const a = toSimplified(area).replace(/中国(?=香港|台湾|澳门)/g, '').trim();
+  if (!a) return [];
+  return AREA.filter(([, re]) => re.test(a)).map(([r]) => r);
 }
 
 const COUNTRY = { CN: 'cn', HK: 'hk', TW: 'tw', MO: 'hk', KR: 'kr', JP: 'jp', TH: 'th' };
