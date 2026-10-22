@@ -33,6 +33,14 @@ const B = [[vod(11, '慶餘年', '国产剧', '2026-10-22 11:00:00'), vod(12, '�
 // 站点正常回 JSON，但全是丢弃类目 / 没有 m3u8 的条目
 const EMPTY = [[vod(21, '某动画', '国产动漫', '2026-10-22 10:00:00'), vod(22, '网页线路', '国产剧', '2026-10-22 09:00:00', { vod_play_from: 'web', vod_play_url: '第1集$https://v.example/y.html' })]];
 
+// 站 Q：8 部国产剧 + 2 部韩剧 + 同名异站重复（年份缺失的也算同一部）
+const Q = [[
+  ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => vod(100 + i, `国产${'甲乙丙丁戊己庚辛'[i - 1]}`, '国产剧', `2026-10-22 1${i}:00:00`)),
+  vod(120, '韩剧甲', '韩国剧', '2026-10-22 09:00:00'), vod(121, '韩剧乙', '韩国剧', '2026-10-22 08:00:00'),
+  vod(122, '国产辛', '国产剧', '2026-10-22 07:00:00', { vod_year: '' }),
+  vod(123, '写真集', '写真', '2026-10-22 06:00:00'), vod(124, '侧耳倾听', 'AI漫剧', '2026-10-22 06:00:00'),
+]];
+
 const hits = [];
 let srv; let base;
 before(async () => {
@@ -40,7 +48,7 @@ before(async () => {
     const u = new URL(req.url, 'http://x');
     hits.push(u.pathname + u.search);
     res.setHeader('content-type', 'application/json');
-    const pages = { '/a': A, '/b': B, '/empty': EMPTY }[u.pathname];
+    const pages = { '/a': A, '/b': B, '/empty': EMPTY, '/q': Q }[u.pathname];
     if (!pages) { res.statusCode = 500; return res.end('{}'); }
     const pg = Number(u.searchParams.get('pg')) || 1;
     res.end(JSON.stringify({ code: 1, page: pg, pagecount: pages.length, limit: 20, total: pages.flat().length, list: pages[pg - 1] || [] }));
@@ -103,6 +111,15 @@ test('collectLatest：分排、丢动漫 / 无 m3u8 / 短剧、跨站去重、�
   assert.equal(card.kind, 'variety');
   assert.ok(recorded.some(([id, ok]) => id === 9 && ok === false));
   assert.ok(recorded.some(([id, ok]) => id === 1 && ok === true));
+});
+
+test('collectLatest：每排每个地区最多 4 张；年份缺失的同名视为同一部；擦边 / 漫剧不出现', async () => {
+  useSites([{ id: 5, api: `${base}/q`, fail_streak: 0 }]);
+  const r = await latest.collectLatest();
+  assert.equal(r.tv.filter((x) => x.region === 'cn').length, 4);
+  assert.equal(r.tv.filter((x) => x.region === 'kr').length, 2);
+  assert.equal(r.tv.filter((x) => x.name === '国产辛').length, 1);
+  assert.ok(!r.tv.some((x) => /写真|侧耳/.test(x.name)));
 });
 
 test('collectLatest：所有站都没回应 -> 抛错（不缓存成空）', async () => {

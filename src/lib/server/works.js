@@ -14,7 +14,7 @@ import { saveTitle, loadTitle } from './library.js';
 
 const SRC_TTL = 30 * 60;
 // 缓存键带匹配逻辑版本：匹配规则改了，老用户缓存里的「无片源」立刻失效
-const MATCH_V = 'v2';
+const MATCH_V = 'v3';
 
 /** 测试钩子：注入假的 findSources / getWork / listSites；传 null 恢复 */
 const DEFAULT_DEPS = { findSources: realFindSources, getWork: null, listSites };

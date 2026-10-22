@@ -24,10 +24,11 @@
   let loading = $state(false);
   let res = $state(null);   // { works, persons?, person? }
   let more = $state(false);
+  let showShort = $state(false);
 
   $effect(() => {
     const qq = q, m = mode, p = person;
-    res = null; more = false;
+    res = null; more = false; showShort = false;
     if (!qq) { loading = false; return; }
     const ctl = new AbortController();
     loading = true;
@@ -48,7 +49,10 @@
   const isActor = $derived(!!res?.persons?.length);
   /** 演员作品的可用性是懒加载的，其余模式服务端已经给了 */
   const works = $derived((res?.works ?? []).map((w) => (w.available == null ? { ...w, available: avail.of(w.key) } : w)));
-  const shown = $derived(more ? works : works.slice(0, FIRST));
+  /** 正剧 / 电影在前；短剧折成一组放最后 */
+  const main = $derived(works.filter((w) => w.kind !== 'short'));
+  const shorts = $derived(works.filter((w) => w.kind === 'short'));
+  const shown = $derived(more ? main : main.slice(0, FIRST));
   const lazyKeys = $derived((res?.works ?? []).filter((w) => w.available == null).map((w) => w.key));
   const personHref = (id) => `/search?q=${encodeURIComponent(q)}&mode=actor&person=${id}`;
 </script>
@@ -85,12 +89,23 @@
     {#if works.length}
       <Section title={isActor ? '作品' : '结果'} count={works.length}>
         <div use:watchAvail={lazyKeys} data-results><CardGrid items={shown.map((w) => toCard(w))} eager /></div>
-        {#if works.length > FIRST && !more}
+        {#if main.length > FIRST && !more}
           <div class="mt-5 flex justify-center">
             <button onclick={() => (more = true)}
                     class="tap rounded-full border border-ink-600 bg-ink-900 px-5 py-2 text-[13px] text-ink-200 transition hover:border-accent hover:text-accent-ink">
-              更多 {works.length - FIRST}
+              更多 {main.length - FIRST}
             </button>
+          </div>
+        {/if}
+        {#if shorts.length}
+          <div class="mt-6" data-shorts>
+            <button onclick={() => (showShort = !showShort)} aria-expanded={showShort}
+                    class="tap rounded-full border border-ink-600 bg-ink-900 px-5 py-2 text-[13px] text-ink-200 transition hover:border-accent hover:text-accent-ink">
+              短剧 {shorts.length} 部{showShort ? ' · 收起' : ''}
+            </button>
+            {#if showShort}
+              <div class="mt-4"><CardGrid items={shorts.map((w) => toCard(w))} eager /></div>
+            {/if}
           </div>
         {/if}
       </Section>
