@@ -182,3 +182,31 @@ test('rememberSearch 只记通过片源判定的条目（同名同年的内地�
   const s = await works.sourcesFor({ key: 'tv-7', type: 'tv', name: '黑暗荣耀', seasons: [] });
   assert.deepEqual(s.map((v) => v.vodId), ['71']);
 });
+
+test('sourcesFor 把通过匹配的 cms 片源登记成别名：cms 下的进度并到 TMDB 作品', async () => {
+  const lib = await import('../../src/lib/server/library.js');
+  lib.saveProgress({ key: 'cms-1-30', season: 1, episode: 2, epName: '第2集', position: 321, duration: 2700, siteId: 1 });
+  setup([list([{ ...vod, vodId: '30' }], true)]);
+  const w = { key: 'tv-31', type: 'tv', name: '繁花', seasons: [] };
+  lib.saveTitle(w);
+  await works.sourcesFor(w);
+  assert.equal(lib.resolveKey('cms-1-30'), 'tv-31');
+  assert.equal(lib.getProgress('tv-31').last.position, 321);
+  assert.equal(lib.continueList().filter((x) => x.key === 'tv-31' || x.key === 'cms-1-30').length, 1);
+});
+
+test('多季剧按条目自己的季号登记别名；cms 作品自己的片源查询不登记', async () => {
+  const lib = await import('../../src/lib/server/library.js');
+  const v2 = { ...vod, vodId: '20', name: '某剧 第二季' };
+  setup([list([v2], true)]);
+  const w = { key: 'tv-32', type: 'tv', name: '某剧', seasons: [{ season: 1 }, { season: 2 }] };
+  lib.saveTitle(w);
+  lib.saveProgress({ key: 'cms-1-20', season: 1, episode: 1, position: 10, duration: 100 });
+  await works.sourcesFor(w, 2);
+  assert.equal(lib.getProgress('tv-32').episodes[0].season, 2);
+
+  const v3 = { ...vod, vodId: '21' };
+  setup([list([], true)]);
+  await works.sourcesFor({ key: 'cms-1-21', type: 'tv', name: '繁花', seasons: [], vod: v3 });
+  assert.equal(lib.resolveKey('cms-1-21'), 'cms-1-21');
+});

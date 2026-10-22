@@ -20,7 +20,14 @@ const SCHEMA = await loadSchema();
 
 /** version 必须从 1 连续递增 */
 export const STEPS = [
-  { version: 1, sql: SCHEMA }
+  { version: 1, sql: SCHEMA },
+  // 0.1.2：season 非空 = 该 cms 作品是 TMDB 多季剧里的这一季（并进来时 cms 进度的季号改成它）；cms-<站>-<id> 作品匹配到 TMDB 作品后登记别名，进度 / 想看 / 线路偏好跨 key 合并（见 library.js registerAlias）
+  { version: 2, sql: `CREATE TABLE IF NOT EXISTS key_alias (
+      alias TEXT PRIMARY KEY,
+      key   TEXT NOT NULL,
+      season INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS key_alias_key ON key_alias (key);` }
 ];
 
 export function migrate(d) {

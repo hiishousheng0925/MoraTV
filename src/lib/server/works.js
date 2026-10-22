@@ -10,7 +10,7 @@ import { detailSite } from './cms/client.js';
 import { findSources as realFindSources, seasonOfVod, acceptSources } from './search/aggregate.js';
 import { regionOfCountry, regionOfArea } from './search/normalize.js';
 import { cached, putCache, peekCache } from './cache.js';
-import { saveTitle, loadTitle } from './library.js';
+import { saveTitle, loadTitle, registerAlias } from './library.js';
 
 const SRC_TTL = 30 * 60;
 // 缓存键带匹配逻辑版本：匹配规则改了，老用户缓存里的「无片源」立刻失效
@@ -147,7 +147,24 @@ export async function sourcesFor(work, season) {
     if (!(e instanceof NoSiteAnswered) || !fromSearch.length) throw e;
   }
   const seen = new Set();
-  return decorate([...(list || []), ...fromSearch].filter((v) => !seen.has(vk(v)) && seen.add(vk(v))));
+  const merged = [...(list || []), ...fromSearch].filter((v) => !seen.has(vk(v)) && seen.add(vk(v)));
+  linkAliases(work, merged);
+  return decorate(merged);
+}
+
+/**
+ * TMDB 作品的片源 = 已通过匹配判定的资源站条目：把它们的 cms-<站>-<id> 登记成该作品的别名，
+ * 没填 TMDB key 时看过的记录（cms key 下）就并到 TMDB 作品名下。多季剧按条目自己的季号登记，认不出季的不登记（会串季）。
+ * 本站自己的详情条目（work.vod）不在这里：它是 cms 作品本身。
+ */
+function linkAliases(work, vods) {
+  if (!/^(tv|movie)-\d+$/.test(work?.key || '')) return;
+  const multi = (work.seasons?.length ?? 0) > 1;
+  const isMovie = work.type === 'movie' || work.kind === 'movie';
+  for (const v of vods) {
+    try { registerAlias(`cms-${v.siteId}-${v.vodId}`, work.key, multi ? seasonOfVod(v, isMovie) : null); }
+    catch (e) { console.warn('[work] 登记别名失败', e?.message || e); }
+  }
 }
 
 /**
@@ -273,6 +290,7 @@ export function rememberSearch(works) {
       // TMDB 作品：只记通过片源判定（和 findSources 同一套）的条目，搜索路径万一混进别的作品也带不进详情页
       const sources = /^(tv|movie)-/.test(w.key) ? acceptSources(w, w.sources || []) : (w.sources || []);
       if (!sources.length) continue;
+      if (/^(tv|movie)-/.test(w.key)) linkAliases(w, sources);
       const slim = sources.map((v) => ({ siteId: v.siteId, vodId: v.vodId, name: v.name, year: v.year ?? null, remarks: v.remarks || '', lines: v.lines }));
       putCache(searchKey(w.key), slim, SRC_TTL);
       putCache(availKey(w.key), { ok: true }, AVAIL_TTL);
