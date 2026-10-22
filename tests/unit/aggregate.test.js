@@ -166,6 +166,21 @@ test('searchActor：取第一位演员的作品，按年份倒序，并查片源
   assert.equal(r.works.find((w) => w.key === 'tv-12').available, false);
 });
 
+test('searchActorQuick：不查片源，available 为 null，可指定 personId', async () => {
+  deps({}, {
+    persons: [{ id: 1, name: '赵丽颖', works: [] }, { id: 2, name: '赵丽颖2', works: [] }],
+    credits: [
+      tm({ id: 11, name: '花千骨', year: 2015, region: 'CN', popularity: 10 }),
+      tm({ id: 12, name: '风吹半夏', year: 2022, region: 'CN', popularity: 20 }),
+    ],
+  });
+  const r = await agg.searchActorQuick('赵丽颖', { personId: 2 });
+  assert.equal(r.person, 2);
+  assert.deepEqual(r.works.map((w) => w.year), [2022, 2015]);
+  assert.ok(r.works.every((w) => w.available === null));
+  assert.equal(calls.searchAll.length, 0, '不应查资源站');
+});
+
 test('searchActor：没 key / 出错时返回空', async () => {
   deps({}, { key: false });
   assert.deepEqual(await agg.searchActor('赵丽颖'), { persons: [], works: [] });

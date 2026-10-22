@@ -361,3 +361,23 @@ export async function searchActor(q, { personId } = {}) {
   works.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
   return { persons, works };
 }
+
+/**
+ * 演员搜索的快速版：只取人和作品列表（不逐部查片源，available 为 null），页面先渲染，可用性再懒加载。
+ * @param {string} q @param {{personId?: number}} [opts]
+ */
+export async function searchActorQuick(q, { personId } = {}) {
+  const query = String(q ?? '').trim();
+  const { tmdb } = deps;
+  if (!query || !tmdb.hasKey()) return { persons: [], works: [] };
+  const persons = await safe(tmdb.searchPerson(query), []);
+  if (!persons.length) return { persons: [], works: [] };
+  const who = persons.find((p) => p.id === personId) || persons[0];
+  const works = (await safe(tmdb.personCredits(who.id), []))
+    .filter((t) => t.type === 'tv' || t.type === 'movie')
+    .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+    .slice(0, ACTOR_WORKS)
+    .map((t) => ({ ...workFromTmdb(t, []), available: null }))
+    .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+  return { persons, person: who.id, works };
+}
