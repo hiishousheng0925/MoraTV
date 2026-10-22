@@ -7,7 +7,7 @@
 import * as tmdb from './tmdb.js';
 import { listSites } from './cms/sites.js';
 import { detailSite } from './cms/client.js';
-import { findSources as realFindSources, seasonOfVod } from './search/aggregate.js';
+import { findSources as realFindSources, seasonOfVod, acceptSources } from './search/aggregate.js';
 import { regionOfCountry, regionOfArea } from './search/normalize.js';
 import { cached, putCache, peekCache } from './cache.js';
 import { saveTitle, loadTitle } from './library.js';
@@ -173,8 +173,10 @@ export function rememberSearch(works) {
     try {
       if (!w?.key) continue;
       if (!loadTitle(w.key)) { const { sources, available, ...rest } = w; saveTitle(rest); }
-      if (!w.sources?.length) continue;
-      const slim = w.sources.map((v) => ({ siteId: v.siteId, vodId: v.vodId, name: v.name, year: v.year ?? null, remarks: v.remarks || '', lines: v.lines }));
+      // TMDB 作品：只记通过片源判定（和 findSources 同一套）的条目，搜索路径万一混进别的作品也带不进详情页
+      const sources = /^(tv|movie)-/.test(w.key) ? acceptSources(w, w.sources || []) : (w.sources || []);
+      if (!sources.length) continue;
+      const slim = sources.map((v) => ({ siteId: v.siteId, vodId: v.vodId, name: v.name, year: v.year ?? null, remarks: v.remarks || '', lines: v.lines }));
       putCache(searchKey(w.key), slim, SRC_TTL);
       putCache(availKey(w.key), { ok: true }, AVAIL_TTL);
     } catch { /* 缓存失败不影响搜索 */ }

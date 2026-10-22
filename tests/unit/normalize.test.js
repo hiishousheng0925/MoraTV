@@ -95,3 +95,8 @@ test('regionsOfArea：多地区全收；「中国香港」不算大陆', () => {
   assert.deepEqual(norm.regionsOfArea('中国香港'), ['hk']);
   assert.deepEqual(norm.regionsOfArea(''), []);
 });
+
+test('normRoman：汉字后面的 I / V / X 是单词时不转', () => {
+  assert.equal(norm.normRoman('我的I人女友'), '我的I人女友');
+  assert.equal(norm.normRoman('溏心风暴I'), '溏心风暴1');
+});

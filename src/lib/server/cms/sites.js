@@ -5,6 +5,9 @@ import { DEFAULT_SITES } from './sites.default.js';
 import { cmsGet, toVods } from './client.js';
 
 let seeded = false;
+let version = 0;
+/** 站点配置的版本号：增删改站点时加一（搜索结果缓存按它区分，换了站点不再拿旧结果） */
+export const sitesVersion = () => version;
 function seed() {
   if (seeded) return;
   const d = db();
@@ -33,6 +36,7 @@ export function addSite({ name, api }) {
   if (!/^https?:$/.test(u.protocol)) throw Object.assign(new Error('API 地址无效'), { status: 400 });
   if (!n) throw Object.assign(new Error('名称不能为空'), { status: 400 });
   const r = db().prepare('INSERT INTO site (name, api) VALUES (?, ?)').run(n, a);
+  version++;
   return byId(Number(r.lastInsertRowid));
 }
 
@@ -43,12 +47,14 @@ export function updateSite(id, patch) {
   if (!keys.length) return byId(id);
   const vals = keys.map((k) => (k === 'enabled' ? (patch[k] ? 1 : 0) : patch[k]));
   db().prepare(`UPDATE site SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...vals, id);
+  version++;
   return byId(id);
 }
 
 export function removeSite(id) {
   seed();
   db().prepare('DELETE FROM site WHERE id = ?').run(id);
+  version++;
 }
 
 /** 记一次请求结果：成功清 fail_streak，失败 +1 */
@@ -83,8 +89,11 @@ export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
     const vods = toVods(j, s.id);
     // 第 1 页满页且不止一页：再取第 2 页（短片名「功夫」常被同名前缀的作品挤到后面）
     if (j && Number(j.pagecount) > 1 && j.list.length >= (Number(j.limit) || 20)) {
+      const t1 = Date.now();
+      const j2 = await cmsGet(s, { ac: 'videolist', wd: keyword, pg: 2 }, timeoutMs);
+      if (!j2) recordResult(s.id, false, Date.now() - t1); // 第 2 页失败也算进 fail_streak（成功不覆盖第 1 页测得的延迟）
       const seen = new Set(vods.map((v) => v.vodId));
-      vods.push(...toVods(await cmsGet(s, { ac: 'videolist', wd: keyword, pg: 2 }, timeoutMs), s.id).filter((v) => !seen.has(v.vodId)));
+      vods.push(...toVods(j2, s.id).filter((v) => !seen.has(v.vodId)));
     }
     return { site: s, ok: !!j, vods };
   })));
@@ -92,5 +101,6 @@ export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
     .sort((a, b) => (a.site.fail_streak - b.site.fail_streak) || (b.site.weight - a.site.weight) || (a.site.id - b.site.id))
     .flatMap((r) => r.vods);
   out.answered = results.filter((r) => r.ok).length;
+  out.total = results.length;
   return out;
 }

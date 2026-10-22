@@ -70,5 +70,14 @@ test('搜索说有 → 详情也有：rememberSearch 写进片源缓存，分季
   const w = { key: 'tv-6', type: 'tv', name: '创世纪', seasons: [{ season: 1 }, { season: 2 }] };
   assert.deepEqual((await works.sourcesFor(w, 2)).map((v) => v.vodId), ['62']);
   assert.deepEqual((await works.sourcesFor(w, 1)).map((v) => v.vodId), ['61']);
-  assert.ok(calls.find >= 1);
+  assert.equal(calls.find, 3, "旧判定 1 次 + 两个季各查 1 次");
+});
+
+test('rememberSearch 只记通过片源判定的条目（同名同年的内地剧不进韩剧的片源缓存）', async () => {
+  setup([list([], true)]);
+  const kr = { ...vod, vodId: '71', name: '黑暗荣耀', year: 2022, area: '韩国', category: { kind: 'tv', region: 'kr' }, actors: ['宋慧乔'] };
+  const cn = { ...vod, vodId: '72', name: '黑暗荣耀', year: 2022, area: '大陆', category: { kind: 'tv', region: 'cn' }, actors: ['某甲'] };
+  works.rememberSearch([{ key: 'tv-7', type: 'tv', kind: 'tv', name: '黑暗荣耀', originalName: '더 글로리', year: 2022, region: 'kr', tmdb: { alternativeTitles: [] }, sources: [kr, cn], available: true }]);
+  const s = await works.sourcesFor({ key: 'tv-7', type: 'tv', name: '黑暗荣耀', seasons: [] });
+  assert.deepEqual(s.map((v) => v.vodId), ['71']);
 });

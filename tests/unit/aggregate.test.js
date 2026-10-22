@@ -392,3 +392,53 @@ test('seasonOfVod：分部副标题 / 罗马数字也读出季号；电影恒为
   assert.equal(agg.seasonOfVod({ name: '庆余年第二季' }, false), 2);
   assert.equal(agg.seasonOfVod({ name: '流浪地球2' }, true), 1);
 });
+
+test('回归 searchTitles · 三体：网飞《三体》（欧美剧类目、vod_area 带中国大陆）不并进腾讯版', async () => {
+  const { c, w } = await searchCase('三体（护栏）', '三体', { type: 'tv', id: 204541, name: '三体', originalName: '三体', year: 2023, region: 'CN', popularity: 30 });
+  const got = keysOf(w.sources);
+  assert.deepEqual(got.filter((k) => c.exclude.includes(k)), []);
+  assert.ok(c.include.every((k) => got.includes(k)));
+});
+
+test('回归 searchTitles · 黑暗荣耀：同名同年的内地剧 / 短剧不并进韩剧', async () => {
+  const { w } = await searchCase('黑暗荣耀（护栏）', '黑暗荣耀', { type: 'tv', id: 136283, name: '黑暗荣耀', originalName: '더 글로리', year: 2022, region: 'KR', popularity: 30 });
+  assert.deepEqual(keysOf(w.sources), ['1:10']);
+});
+
+test('searchTitles 的 TMDB 作品片源 = findSources 的判定（所有回归用例）', async () => {
+  const toCountry = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', west: 'US' };
+  for (const c of FIX.cases) {
+    if (c.season != null) continue;
+    const w = c.work;
+    const [type, id] = w.key.split('-');
+    const { w: hit } = await searchCase(c.id, w.name, { type, id: Number(id), name: w.name, originalName: w.originalName, year: w.year, region: toCountry[w.region], popularity: 10 });
+    const fs = keysOf(await agg.findSources(w));
+    const extra = keysOf(hit?.sources || []).filter((k) => !fs.includes(k));
+    assert.deepEqual(extra, [], `${c.id}：搜索结果比详情页多出的片源`);
+  }
+});
+
+test('acceptSources：rememberSearch 用的判定，把别的作品的条目筛掉', () => {
+  const c = caseOf('黑暗荣耀（护栏）');
+  const ok = agg.acceptSources(c.work, c.pool.map(poolVod));
+  assert.deepEqual(keysOf(ok), ['1:10']);
+});
+
+test('关键词缓存：有站没回应的结果不复用；站点配置变了不复用', async () => {
+  const c = caseOf('功夫');
+  const pool = c.pool.map(poolVod);
+  let calls = 0; let answered = 5; let ver = 1;
+  agg._setDeps({ searchAll: async (kw) => { calls++; return Object.assign(pool.filter((v) => like(v.name).includes(like(kw))), { answered, total: 9 }); },
+    sitesVersion: () => ver, tmdb: { hasKey: () => false } });
+  await agg.findSources(c.work);
+  const n = calls;
+  await agg.findSources(c.work);
+  assert.equal(calls, 2 * n, '部分站点没回应：下次重搜');
+  answered = 9;
+  await agg.findSources(c.work);
+  await agg.findSources(c.work);
+  assert.equal(calls, 3 * n, '全部回应：复用');
+  ver = 2;
+  await agg.findSources(c.work);
+  assert.equal(calls, 4 * n, '站点配置变了：重搜');
+});

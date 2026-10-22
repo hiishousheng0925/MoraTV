@@ -16,13 +16,13 @@
  *   - 电影年份差 1 的条目要和同年条目（或 TMDB 中文演员表）有演员交集，否则是同名不同作（诺兰《奥德赛》2026 vs 英国恐怖片 2025）。
  *   - 片名带「（动画版）」「[解说]」之类注记的条目和动画类目一样直接丢。
  */
-import { searchAll as cmsSearchAll } from '../cms/sites.js';
+import { searchAll as cmsSearchAll, sitesVersion } from '../cms/sites.js';
 import * as tmdbApi from '../tmdb.js';
 import { pLimit } from '../net.js';
 import { normTitle, rawKey, seasonOf, regionOfArea, regionsOfArea, regionOfCountry, normRoman, stripPartSubtitle, toSimplified } from './normalize.js';
 import { variants } from './variants.js';
 
-const DEFAULT_DEPS = { searchAll: cmsSearchAll, tmdb: tmdbApi };
+const DEFAULT_DEPS = { searchAll: cmsSearchAll, sitesVersion, tmdb: tmdbApi };
 let deps = DEFAULT_DEPS;
 
 const ALT_DETAILS = 4;      // 取别名的 TMDB 条目数（按相关度）
@@ -30,7 +30,7 @@ const ROUND2_TERMS = 8;     // 二轮搜索最多关键词数
 const ACTOR_WORKS = 24;     // 演员作品最多列多少部（按热度取，再按年份排）
 const ACTOR_CONCURRENCY = 6;
 const SOURCE_TERMS = 6;     // findSources 最多搜几个关键词（每个词 = 每个资源站 1–2 个请求）
-const TERM_CONCURRENCY = 6; // 同时在搜的关键词数（全局，跨请求）
+const TERM_CONCURRENCY = 12; // 同时在搜的关键词数（全局，跨请求）：一次片名搜索的二轮最多 8 个词 + 一轮 3 个，要能一波发完
 const TERM_TTL_MS = 10 * 60 * 1000; // 同一关键词 10 分钟内复用结果（逐部查可用性时很多作品共用一个词）
 const TERM_MEMO_MAX = 300;
 
@@ -86,14 +86,18 @@ const isSeries = (k) => k !== 'movie';
 /** 比较演员用：繁转简、去间隔号 / 空白，小写 */
 const actorKey = (s) => toSimplified(String(s || '')).replace(/[\s·•．.\-]/g, '').toLowerCase();
 
-/** 一个关键词搜所有站（全局限并发；10 分钟内同词复用；没有任何站回应的结果不复用） */
+/** 一个关键词搜所有站（全局限并发；同一站点配置下 10 分钟内同词复用；有站没回应的结果不复用） */
 function searchTerm(t) {
   const now = Date.now();
-  const hit = termMemo.get(t);
+  const key = `${deps.sitesVersion?.() ?? 0}|${t}`;
+  const hit = termMemo.get(key);
   if (hit && now - hit.at < TERM_TTL_MS) return hit.p;
   const p = termLimit(() => deps.searchAll(t)).catch(() => Object.assign([], { answered: 0 }));
-  termMemo.set(t, { at: now, p });
-  p.then((l) => { if (l.answered === 0 && termMemo.get(t)?.p === p) termMemo.delete(t); });
+  termMemo.set(key, { at: now, p });
+  p.then((l) => {
+    const partial = l.answered === 0 || (l.total != null && l.answered < l.total);
+    if (partial && termMemo.get(key)?.p === p) termMemo.delete(key);
+  });
   if (termMemo.size > TERM_MEMO_MAX) {
     for (const [k, v] of termMemo) if (now - v.at >= TERM_TTL_MS || termMemo.size > TERM_MEMO_MAX) termMemo.delete(k); else break;
   }
@@ -177,7 +181,8 @@ function cluster(vods) {
     const regions = vodRegions(v);
     const c = clusters.find((c) => {
       if (c.nt !== nt || !kindOk(c.kind, kind)) return false;
-      if (!regionOk(c.region, region) && !overlaps(regions, c.regions)) return false;
+      // 地区不同：只有同年、且条目自称的地区有交集才并（「欧美剧 / 美国·中国大陆」的网飞三体不并进国产三体）
+      if (!regionOk(c.region, region) && !(c.baseYear != null && v.year === c.baseYear && overlaps(new Set(primaryRegions(v)), c.strong))) return false;
       if (c.mk && mk && c.mk !== mk) return false;
       if (season > 1) {
         // 续季：只限剧集，且不早于首季
@@ -308,8 +313,13 @@ function pruneNeighbours(list, vodOf, year, cast = []) {
   });
 }
 
+/** TMDB 条目当作品看（给 acceptSources 用；形态取资源站条目的多数，和详情页 getWork 沿用搜索形态一致） */
+function tmdbWork(t, vods) {
+  return { name: t.name, originalName: t.originalName, year: t.year, region: regionOfCountry(t.region), type: t.type,
+    kind: majorityKind(vods) || t.type, tmdb: { alternativeTitles: t.alternativeTitles || [] } };
+}
+
 function workFromTmdb(t, vods) {
-  if (t.type === 'movie' && t.year != null) vods = pruneNeighbours(vods, (v) => v, t.year);
   const sources = sortSources(vods).map(strip);
   const rep = sources[0];
   return {
@@ -454,7 +464,11 @@ export async function searchTitles(q) {
   for (const t of relevant) {
     const k = keyOf(t);
     const cs = matched.get(k) || [];
-    const w = workFromTmdb(t, [...cs.flatMap((c) => c.vods), ...(extra.get(k) || [])]);
+    const cand = [...cs.flatMap((c) => c.vods), ...(extra.get(k) || [])];
+    // 和详情页用同一套判定：搜索卡片上的片源不能比详情页多（网飞《三体》不进腾讯版）
+    const ok = new Set(acceptSources(tmdbWork(t, cand), cand));
+    for (const c of cs) if (!c.vods.some((v) => ok.has(v))) c.tmdb = null; // 整簇都不是它的：退回去单独成作品
+    const w = workFromTmdb(t, cand.filter((v) => ok.has(v)));
     w._sim = t._sim;
     w._exact = rawKey(w.name) === rawKey(query) ? 1 : 0;
     w._pop = t.popularity || 0;
@@ -478,6 +492,7 @@ export async function searchTitles(q) {
  * 再补主名的繁体写法。最多 SOURCE_TERMS 个。
  */
 function sourceTerms(work, names) {
+  // 有中文名时不搜外文原名（资源站按中文片名索引，外文原名几乎搜不到，白占请求）；作品主名本身是外文（HIStory）才搜
   const usableName = (n) => !KANA_HANGUL.test(n);
   const cjk = names.filter((n) => CJK.test(n) && usableName(n));
   const pool = cjk.length ? [...(work.name && !CJK.test(work.name) && usableName(work.name) ? [work.name] : []), ...cjk] : names.slice(0, 1);
@@ -509,13 +524,29 @@ function sourceTerms(work, names) {
  * @param {number} [season]
  */
 export async function findSources(work, season) {
-  const names = [work.name, work.originalName, ...(work.tmdb?.alternativeTitles || [])].map((s) => String(s || '').trim()).filter(Boolean);
+  const names = workNames(work);
+  if (!names.some((n) => normTitle(n))) return [];
+  const vods = await searchTerms(sourceTerms(work, names));
+  const found = acceptSources(work, vods, season);
+  found.anyAnswered = vods.anyAnswered;
+  return found;
+}
+
+const workNames = (work) => [work.name, work.originalName, ...(work.tmdb?.alternativeTitles || [])].map((s) => String(s || '').trim()).filter(Boolean);
+
+/**
+ * 片源判定（findSources、搜索结果的 TMDB 作品、rememberSearch 共用）：从候选条目里挑出属于这部作品（这一季）的，按集数排序。
+ * 规则见文件头注释。
+ * @param {{name: string, originalName?: string, year?: number|null, region?: string|null, kind?: string, type?: string, tmdb?: any, cast?: {name: string}[]}} work
+ * @param {any[]} vods @param {number} [season]
+ */
+export function acceptSources(work, vods, season) {
+  const names = workNames(work);
   const nts = new Set(names.map(normTitle).filter(Boolean));
   if (!nts.size) return [];
   const isMovie = work.type === 'movie' || work.kind === 'movie';
   const mkeys = new Set(names.map(movieKey).filter(Boolean));
   const own = new Set([work.name, work.originalName].map(normTitle).filter(Boolean)); // 形态兜底只认主名 / 原名
-  const vods = await searchTerms(sourceTerms(work, names));
   const hits = [];
   for (const v of vods) {
     let nt;
@@ -558,9 +589,7 @@ export async function findSources(work, season) {
   if (home.size) ok = ok.filter((h) => !h.cross || !h.v.actors?.length || overlaps(actorsOf([h.v]), home));
   if (isMovie && work.year != null) ok = pruneNeighbours(ok, (h) => h.v, work.year, work.cast);
   if (season != null) ok = ok.filter((h) => h.s === season);
-  const found = sortSources(ok.map((h) => h.v));
-  found.anyAnswered = vods.anyAnswered;
-  return found;
+  return sortSources(ok.map((h) => h.v));
 }
 
 /**

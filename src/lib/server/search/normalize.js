@@ -73,13 +73,13 @@ function peel(input) {
 const LATIN_ROMAN = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10 };
 
 /**
- * 罗马数字 -> 阿拉伯数字：Ⅰ–Ⅻ / ⅰ–ⅻ 一律转；拉丁字母写的 II / III / IV…只在中文片名里、紧跟汉字（可隔空格）且后面不接字母时转
+ * 罗马数字 -> 阿拉伯数字：Ⅰ–Ⅻ / ⅰ–ⅻ 一律转；拉丁字母写的 II / III / IV…只在中文片名里、紧跟汉字（可隔空格）且后面是结尾 / 空白 / 标点 / 数字时转（「我的I人」不动）
  * （「無間道III: 終極無間」→「無間道3: 終極無間」；「Rocky II」「VIP」不动）。
  * @param {string} s
  */
 export function normRoman(s) {
   let t = String(s ?? '').replace(/[Ⅰ-Ⅻⅰ-ⅻ]/g, (c) => String(((c.charCodeAt(0) - 0x2160) % 16) + 1));
-  if (CJK.test(t)) t = t.replace(/(?<=[㐀-鿿]\s*)(VIII|VII|VI|IV|IX|III|II|X|V|I)(?![A-Za-z])/g, (m) => String(LATIN_ROMAN[m]));
+  if (CJK.test(t)) t = t.replace(/(?<=[㐀-鿿]\s*)(VIII|VII|VI|IV|IX|III|II|X|V|I)(?=$|[\s\p{P}\d])/gu, (m) => String(LATIN_ROMAN[m]));
   return t;
 }
 
