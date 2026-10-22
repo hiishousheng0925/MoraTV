@@ -111,9 +111,9 @@ export function filterAds(playlistText, opts = {}) {
   const gridDiff = (g) => {
     if (mainGrid < 0) return false;
     const gi = g.segs.map((s) => gridsOf(s.dur)).filter(informative);
-    // 落在主体网格上的片 vs 只落在别的网格上的片；后者不少于前者才算「时长特征不同」
+    // 落在主体网格上的片 vs 只落在别的网格上的片；后者严格多于前者才算「时长特征不同」（平局不删，避免误删 1-of-1 / 1-of-2 的短正片组）
     const off = gi.filter((x) => !x.includes(mainGrid)).length;
-    return off > 0 && off >= gi.length - off;
+    return off > 0 && off > gi.length - off;
   };
 
   const drop = new Set();

@@ -97,7 +97,7 @@ export async function details(type, id) {
   if (!d) return null;
   let overview = d.overview || '';
   if (!overview) {
-    for (const lang of ['zh-TW', 'en-US']) {
+    for (const lang of ['zh-TW', 'zh-HK', 'en-US']) {
       const f = await get(`/${type}/${id}`, {}, TTL_DETAIL, lang).catch(() => null);
       if (f?.overview) { overview = f.overview; break; }
     }

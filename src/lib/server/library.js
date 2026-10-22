@@ -49,6 +49,8 @@ export function saveProgress({ key, season = 1, episode, epName = '', position =
   if (!key || !Number.isFinite(+episode)) throw Object.assign(new Error('参数无效'), { status: 400 });
   const t = now(), s = Number(season) || 0, e = Number(episode);
   const d = db();
+  d.exec('BEGIN');
+  try {
   d.prepare(`INSERT INTO progress (title_key, season, episode, ep_name, position, duration, site_id, line, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(title_key, season, episode) DO UPDATE SET ep_name = excluded.ep_name, position = excluded.position,
@@ -57,6 +59,8 @@ export function saveProgress({ key, season = 1, episode, epName = '', position =
   d.prepare(`INSERT INTO last_watch (title_key, season, episode, updated_at) VALUES (?, ?, ?, ?)
              ON CONFLICT(title_key) DO UPDATE SET season = excluded.season, episode = excluded.episode, updated_at = excluded.updated_at`)
     .run(key, s, e, t);
+  d.exec('COMMIT');
+  } catch (err) { d.exec('ROLLBACK'); throw err; }
 }
 
 /** 该作品所有集的进度 + 最近看的那一集（last，没有为 null） */

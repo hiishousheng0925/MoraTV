@@ -75,18 +75,43 @@ export async function assertPublic(url) {
 }
 
 const MAX_HOPS = 5;
+const CRED_HEADERS = ['authorization', 'cookie', 'proxy-authorization'];
+
+/** 下一跳的请求选项（对齐 WHATWG Fetch）：跨源去掉凭据头；303 或 POST 遇 301/302 改 GET 并丢 body。 */
+function redirectOpts(o, status, crossOrigin) {
+  const out = { ...o };
+  if (crossOrigin && out.headers) {
+    const h = new Headers(out.headers);
+    for (const k of CRED_HEADERS) h.delete(k);
+    out.headers = h;
+  }
+  const method = String(out.method || 'GET').toUpperCase();
+  if (status === 303 ? method !== 'HEAD' : (status === 301 || status === 302) && method === 'POST') {
+    out.method = 'GET';
+    delete out.body;
+    if (out.headers) {
+      const h = new Headers(out.headers);
+      h.delete('content-type'); h.delete('content-length');
+      out.headers = h;
+    }
+  }
+  return out;
+}
 
 /** fetch + 总超时（毫秒，含所有跳）；手动跟随重定向，每一跳都过 assertPublic，最多 5 跳。 */
 export async function fetchWithTimeout(url, opts = {}, ms = 8000) {
   const signal = AbortSignal.timeout(ms);
   let cur = String(url);
+  let o = { ...opts };
   for (let hop = 0; ; hop++) {
     await assertPublic(cur);
-    const res = await fetch(cur, { ...opts, signal, redirect: 'manual' });
+    const res = await fetch(cur, { ...o, signal, redirect: 'manual' });
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
       res.body?.cancel?.().catch(() => {});
       if (hop >= MAX_HOPS) throw httpError(502, '重定向过多');
-      cur = new URL(res.headers.get('location'), cur).href;
+      const next = new URL(res.headers.get('location'), cur);
+      o = redirectOpts(o, res.status, new URL(cur).origin !== next.origin);
+      cur = next.href;
       continue;
     }
     return res;

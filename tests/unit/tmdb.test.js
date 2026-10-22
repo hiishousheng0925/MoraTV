@@ -51,7 +51,7 @@ before(async () => {
           seasons: [{ season_number: 1, name: '第 1 季', episode_count: 12, air_date: '2020-01-01' }],
         });
       }
-      if (lang === 'zh-TW') return json(res, { id: 1, overview: '' });
+      if (lang === 'zh-TW' || lang === 'zh-HK') return json(res, { id: 1, overview: '' });
       return json(res, { id: 1, overview: 'English overview' });
     }
     if (p === '/3/tv/404') return json(res, {}, 404);
@@ -100,7 +100,7 @@ test('searchMulti：字段映射、过滤 person、第二次走缓存', async ()
   assert.equal(db().prepare("SELECT COUNT(*) c FROM cache WHERE k LIKE '%k-test%'").get().c, 0); // api_key 不进缓存键
 });
 
-test('details：append_to_response、主演前 6、别名去重、简介回退 zh-TW -> en-US', async () => {
+test('details：append_to_response、主演前 6、别名去重、简介回退 zh-TW -> zh-HK -> en-US', async () => {
   const d = await tmdb.details('tv', 1);
   const first = hits.find((h) => h.path === '/3/tv/1');
   assert.equal(first.q.append_to_response, 'alternative_titles,credits');
@@ -109,7 +109,7 @@ test('details：append_to_response、主演前 6、别名去重、简介回退 z
   assert.equal(d.cast.length, 6);
   assert.equal(d.region, 'KR');
   assert.deepEqual(d.seasons, [{ season: 1, name: '第 1 季', episodeCount: 12, airDate: '2020-01-01', poster: null }]);
-  assert.deepEqual(hits.filter((h) => h.path === '/3/tv/1').map((h) => h.q.language), ['zh-CN', 'zh-TW', 'en-US']);
+  assert.deepEqual(hits.filter((h) => h.path === '/3/tv/1').map((h) => h.q.language), ['zh-CN', 'zh-TW', 'zh-HK', 'en-US']);
   const n = hits.length;
   await tmdb.details('tv', 1);
   assert.equal(hits.length, n);

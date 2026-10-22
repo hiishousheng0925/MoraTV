@@ -8,7 +8,7 @@
    *   · 播完由播放器倒数 5 秒自动下一集
    */
   import { untrack } from 'svelte';
-  import { replaceState } from '$app/navigation';
+  import { replaceState, goto } from '$app/navigation';
   import { page } from '$app/state';
   import Page from '$lib/ui/Page.svelte';
   import Player from '$lib/ui/Player.svelte';
@@ -54,7 +54,7 @@
     if (!b || b.position === savedPos) return;
     savedPos = b.position;
     const json = JSON.stringify(b);
-    if (beacon && navigator.sendBeacon?.('/api/progress', new Blob([json], { type: 'application/json' }))) return;
+    try { if (beacon && navigator.sendBeacon?.('/api/progress', new Blob([json], { type: 'application/json' }))) return; } catch {}
     fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' }, body: json, keepalive: true }).catch(() => {});
   }
 
@@ -193,7 +193,7 @@
     <div class="stage relative aspect-video overflow-hidden bg-black max-sm:-mx-4 sm:rounded-2xl lg:self-start">
       <Player {src} {start} hls title={w.name} {epLabel} {pending} {hasPrev} {hasNext}
               onprev={() => goEp(i - 1)} onnext={() => goEp(i + 1)}
-              onback={() => history.back()}
+              onback={() => (history.length > 1 ? history.back() : goto('/title/' + encodeURIComponent(w.key)))}
               {ontime} onfail={fail}
               onmeta={() => { loaded = true; lastTick = Date.now(); }}
               onpause={(t) => { paused = true; pos = t || pos; save(); }}

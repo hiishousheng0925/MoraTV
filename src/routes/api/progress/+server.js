@@ -12,7 +12,7 @@ export function GET({ url }) {
 
 /**
  * POST /api/progress  {key, season, episode, epName, position, duration, siteId, line}
- * 播放页每 10 秒 / 暂停 / 切集 / 关闭时调；关闭时用 sendBeacon（content-type 可能是 text/plain），所以按文本读再 parse。
+ * 播放页每 10 秒 / 暂停 / 切集 / 关闭时调；关闭时用 sendBeacon（Blob 带 application/json，过得了 CSRF 钩子），仍按文本读再 parse。
  */
 export async function POST({ request }) {
   let b;
