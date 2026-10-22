@@ -415,3 +415,13 @@ test('港产三级剥削片按 id 排除（分级 III ∩ 香港出品 ∩ 性�
   assert.equal(hits.filter((h) => h.q.certification === 'III').length, n, '片单走缓存');
   assert.deepEqual((await tmdb.searchMulti('羔羊')).map((x) => x.id), [1598], '搜索也去掉');
 });
+
+test('genreNames：zh-CN 下仍是英文的剧集类型按 id 换成中文，其余英文名不显示；zhCharacter：非中文角色名不显示', () => {
+  assert.deepEqual(tmdb.genreNames([{ id: 18, name: '剧情' }, { id: 10765, name: 'Sci-Fi & Fantasy' }, { id: 99999, name: 'Weird' }, { id: 10768, name: 'War & Politics' }]),
+    ['剧情', '科幻奇幻', '战争政治']);
+  assert.deepEqual(tmdb.genreNames(undefined), []);
+  assert.equal(tmdb.zhCharacter('Wei Rao'), '');
+  assert.equal(tmdb.zhCharacter('Self'), '');
+  assert.equal(tmdb.zhCharacter(' 魏娆 '), '魏娆');
+  assert.equal(tmdb.zhCharacter(null), '');
+});

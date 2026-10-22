@@ -293,6 +293,10 @@ test('findActorEntry：名字完全相同且热度够才给入口；同名取最
   const e = await agg.findActorEntry('劉德華'); // 繁体也认（原名 / 简繁不敏感）
   assert.deepEqual({ id: e.id, name: e.name, profile: e.profile, workCount: e.workCount }, { id: 25246, name: '刘德华', profile: '/p.jpg', workCount: 2 });
   assert.equal(await agg.findActorEntry('刘德'), null, '不是完整名字');
+  // 代表作 N 部 = 演员页实际列出的部数（最多 24），不是全部作品数
+  deps({}, { persons, credits: Array.from({ length: 40 }, (_, i) => tm({ id: 100 + i, type: 'movie', name: `片${i}`, year: 2000 + (i % 20) })) });
+  assert.equal((await agg.findActorEntry('刘德华')).workCount, (await agg.searchActorQuick('刘德华')).works.length);
+  deps({}, { persons, credits });
   deps({}, { persons: [persons[0]], credits });
   assert.equal(await agg.findActorEntry('刘德华'), null, '热度太低');
   deps({}, { persons, credits: [] });
@@ -492,4 +496,21 @@ test('关键词缓存：有站没回应的结果不复用；站点配置变了�
   ver = 2;
   await agg.findSources(c.work);
   assert.equal(calls, 4 * n, '站点配置变了：重搜');
+});
+
+test('资源站作品的显示名去掉版本后缀和 $ 串；原名留在 rawName，findSources 仍拿它匹配', async () => {
+  const raw = '庆余年，全世界都以为我是废物太子$庆余年之大凉太子爷';
+  deps({ '繁花': [
+    vod({ siteId: 1, vodId: '5', name: '繁花普通话版', year: 2023, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, lines: ep(30) }),
+  ], [raw]: [vod({ siteId: 2, vodId: '7', name: raw, year: 2024, area: '大陆', typeName: '短剧', category: { kind: 'short', region: 'cn' } })] }, { key: false });
+  const [w] = await agg.searchTitles('繁花');
+  assert.equal(w.name, '繁花');
+  assert.equal(w.rawName, '繁花普通话版');
+  const [q] = await agg.searchTitles(raw);
+  assert.equal(q.name, '庆余年，全世界都以为我是废物太子');
+  // 详情页按这份作品找片源：资源站按「包含」搜，搜显示名也能搜到原名条目；判定时原名同样的条目照样对上
+  const hit = vod({ siteId: 2, vodId: '7', name: raw, year: 2024, area: '大陆', typeName: '短剧', category: { kind: 'short', region: 'cn' } });
+  deps({ [q.name]: [hit], [raw]: [hit] }, { key: false });
+  const found = await agg.findSources({ name: q.name, rawName: raw, originalName: '', year: 2024, region: 'cn', type: 'tv', kind: 'short' });
+  assert.deepEqual(found.map((v) => v.vodId), ['7']);
 });

@@ -11,10 +11,10 @@ export const sitesVersion = () => version;
 function seed() {
   if (seeded) return;
   const d = db();
-  const ins = d.prepare('INSERT OR IGNORE INTO site (name, api, builtin) VALUES (?, ?, 1)');
+  const ins = d.prepare('INSERT OR IGNORE INTO site (name, api, builtin, weight) VALUES (?, ?, 1, ?)');
   // 只在 site 表为空（首次启动）时写入，用户删掉内置站点后不再复活
   if (d.prepare('SELECT COUNT(*) AS n FROM site').get().n === 0) {
-    DEFAULT_SITES.forEach((s) => ins.run(s.name, s.api));
+    DEFAULT_SITES.forEach((s) => ins.run(s.name, s.api, s.weight ?? 0));
   }
   seeded = true;
 }

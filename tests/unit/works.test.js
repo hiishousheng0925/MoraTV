@@ -47,6 +47,27 @@ test('有片源：true；sourcesFor 带上站点名和延迟', async () => {
   assert.equal(s[0].latency, 120);
 });
 
+test('sourcesFor：带上显示名 / 语言标签 / 站点权重，原名和线路名不动（线路偏好按内部线路名记）', async () => {
+  const v = { ...vod, vodId: 'w77', name: '繁花普通话版$繁花', lines: [{ name: 'lzm3u8', episodes: vod.lines[0].episodes }, { name: '粤语m3u8', episodes: vod.lines[0].episodes }] };
+  works._setDeps({ listSites: () => [{ id: 1, name: '站A', latency_ms: 1, weight: -10 }], findSources: async () => list([v], true) });
+  const [s] = await works.sourcesFor({ key: 'tv-9031', type: 'tv', name: '繁花', seasons: [] });
+  assert.equal(s.name, '繁花普通话版$繁花');
+  assert.equal(s.title, '繁花');
+  assert.equal(s.lang, '国语');
+  assert.equal(s.weight, -10);
+  assert.deepEqual(s.lines.map((l) => [l.name, l.lang]), [['lzm3u8', null], ['粤语m3u8', '粤语']]);
+});
+
+test('genresOfType：资源站类目名只在像题材时才当类型', () => {
+  assert.deepEqual(works.genresOfType('国产剧'), []);
+  assert.deepEqual(works.genresOfType('香港剧'), []);
+  assert.deepEqual(works.genresOfType('大陆综艺'), []);
+  assert.deepEqual(works.genresOfType('欧美剧'), []);
+  assert.deepEqual(works.genresOfType('动作片'), ['动作']);
+  assert.deepEqual(works.genresOfType('古装剧'), ['古装']);
+  assert.deepEqual(works.genresOfType(''), []);
+});
+
 test('sourcesFor：全部站点没回应时抛 NoSiteAnswered', async () => {
   setup([list([], false)]);
   await assert.rejects(works.sourcesFor({ key: 'tv-4', type: 'tv', name: 'x', seasons: [] }), works.NoSiteAnswered);

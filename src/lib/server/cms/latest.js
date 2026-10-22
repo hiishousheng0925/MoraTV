@@ -10,6 +10,7 @@
 import { cached } from '../cache.js';
 import { listSites, recordResult } from './sites.js';
 import { latestBySite } from './client.js';
+import { cleanName } from './parse.js';
 import { normTitle, regionOfArea } from '../search/normalize.js';
 
 export const LATEST_KINDS = ['tv', 'movie', 'variety'];
@@ -54,7 +55,7 @@ const toItem = (v) => {
   const r = v.category.region;
   return {
     key: `cms-${v.siteId}-${v.vodId}`,
-    name: v.name,
+    name: cleanName(v.name).title || v.name,
     poster: v.pic || null,
     year: v.year,
     region: r && r !== 'other' ? r : regionOfArea(v.area),

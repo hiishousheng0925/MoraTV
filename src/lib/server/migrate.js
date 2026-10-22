@@ -27,7 +27,10 @@ export const STEPS = [
       key   TEXT NOT NULL,
       season INTEGER
     );
-    CREATE INDEX IF NOT EXISTS key_alias_key ON key_alias (key);` }
+    CREATE INDEX IF NOT EXISTS key_alias_key ON key_alias (key);` },
+  // 0.1.2：内置的 360资源（画面烧录博彩字幕）降权到最低（同 sites.default.js 的 LOW_WEIGHT）。
+  // 只改内置且权重仍是缺省 0 的那一行，用户加的 / 改过的不动；新装时表是空的，这步什么也不做（seed 直接带权重写入）
+  { version: 3, sql: `UPDATE site SET weight = -10 WHERE builtin = 1 AND weight = 0 AND api = 'https://360zy.com/api.php/provide/vod';` }
 ];
 
 export function migrate(d) {

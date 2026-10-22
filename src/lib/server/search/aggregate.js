@@ -21,6 +21,7 @@ import * as tmdbApi from '../tmdb.js';
 import { pLimit } from '../net.js';
 import { normTitle, rawKey, seasonOf, regionOfArea, regionsOfArea, regionOfCountry, normRoman, stripPartSubtitle, toSimplified } from './normalize.js';
 import { variants } from './variants.js';
+import { cleanName } from '../cms/parse.js';
 
 const DEFAULT_DEPS = { searchAll: cmsSearchAll, sitesVersion, tmdb: tmdbApi };
 let deps = DEFAULT_DEPS;
@@ -346,7 +347,8 @@ function workFromCluster(c) {
   return {
     key: `cms-${rep.siteId}-${rep.vodId}`,
     type: kind === 'movie' ? 'movie' : 'tv',
-    name: rep.name,
+    name: cleanName(rep.name).title || rep.name, // 显示名；资源站原名留在 rawName，仍参与匹配
+    rawName: rep.name,
     originalName: '',
     year: c.baseYear ?? c.minYear ?? null,
     region: c.region || null,
@@ -532,7 +534,7 @@ export async function findSources(work, season) {
   return found;
 }
 
-const workNames = (work) => [work.name, work.originalName, ...(work.tmdb?.alternativeTitles || [])].map((s) => String(s || '').trim()).filter(Boolean);
+const workNames = (work) => [work.name, work.originalName, work.rawName, ...(work.tmdb?.alternativeTitles || [])].map((s) => String(s || '').trim()).filter(Boolean);
 
 /**
  * 片源判定（findSources、搜索结果的 TMDB 作品、rememberSearch 共用）：从候选条目里挑出属于这部作品（这一季）的，按集数排序。
@@ -652,7 +654,8 @@ export async function findActorEntry(q) {
   const p = persons.find((p) => (p.popularity || 0) >= ACTOR_CARD_MIN_POP && [p.name, p.originalName].some((n) => actorKey(n) === nq));
   if (!p) return null;
   const credits = await safe(tmdb.personCredits(p.id), []);
-  const workCount = credits.filter((t) => t.type === 'tv' || t.type === 'movie').length;
+  // 入口卡写的是点进去能看到的部数：演员页最多列 ACTOR_WORKS 部
+  const workCount = Math.min(ACTOR_WORKS, credits.filter((t) => t.type === 'tv' || t.type === 'movie').length);
   if (!workCount) return null;
   return { id: p.id, name: p.name, profile: p.profile || null, popularity: p.popularity || 0, workCount };
 }

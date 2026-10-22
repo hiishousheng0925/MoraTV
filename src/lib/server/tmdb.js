@@ -192,6 +192,16 @@ export async function personCredits(id) {
 
 const ZH_ORDER = ['CN', 'TW', 'HK', 'SG'];
 const zhRank = (c) => { const i = ZH_ORDER.indexOf(c); return i < 0 ? ZH_ORDER.length : i; };
+/**
+ * 类型名中文化：zh-CN 请求下 TMDB 剧集的几个类型仍返回英文（Sci-Fi & Fantasy / War & Politics…），按 id 换成中文；
+ * 表里没有、名字里也没有汉字的直接不显示。
+ */
+const GENRE_ZH = { 10759: '动作冒险', 10762: '儿童', 10763: '新闻', 10764: '真人秀', 10765: '科幻奇幻', 10766: '肥皂剧', 10767: '脱口秀', 10768: '战争政治' };
+const HAN = /[㐀-鿿]/;
+export const genreNames = (genres) => [...new Set((genres || []).map((g) => GENRE_ZH[g.id] || (HAN.test(g.name || '') ? g.name : '')).filter(Boolean))];
+/** 角色名：不是中文（TMDB 华语剧常写拼音「Wei Rao」）就不显示 */
+export const zhCharacter = (s) => { const c = String(s || '').trim(); return HAN.test(c) ? c : ''; };
+
 /** 已按 ZH_ORDER 排好的 zh translations 里第一个非空译名 */
 const zhName = (zh) => zh.map((t) => String(t.data?.name || t.data?.title || '').trim()).find(Boolean) || '';
 
@@ -222,14 +232,14 @@ export async function details(type, id) {
       || (d.original_language === 'zh' || d.original_language === 'cn' ? base.name : '') || zhName(zh) || base.name,
     overview,
     tagline: d.tagline || '',
-    genres: (d.genres || []).map((g) => g.name),
+    genres: genreNames(d.genres),
     status: d.status || '',
     runtime: d.runtime ?? d.episode_run_time?.[0] ?? null,
     backdrop: d.backdrop_path || null,
     numberOfSeasons: d.number_of_seasons ?? null,
     numberOfEpisodes: d.number_of_episodes ?? null,
     alternativeTitles: [...new Set([...zhTitles, ...alts.map((t) => t.title)].filter(Boolean))],
-    cast: (d.credits?.cast || []).slice(0, 6).map((c) => ({ id: c.id, name: c.name, character: c.character || '', profile: c.profile_path || null })),
+    cast: (d.credits?.cast || []).slice(0, 6).map((c) => ({ id: c.id, name: c.name, character: zhCharacter(c.character), profile: c.profile_path || null })),
     seasons: (d.seasons || []).map((s) => ({
       season: s.season_number, name: s.name || '', episodeCount: s.episode_count ?? 0, airDate: s.air_date || null, poster: s.poster_path || null,
     })),

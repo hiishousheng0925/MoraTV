@@ -11,10 +11,11 @@ import { findSources as realFindSources, seasonOfVod, acceptSources } from './se
 import { regionOfCountry, regionOfArea } from './search/normalize.js';
 import { cached, putCache, peekCache } from './cache.js';
 import { saveTitle, loadTitle, registerAlias } from './library.js';
+import { cleanName, langOf } from './cms/parse.js';
 
 const SRC_TTL = 30 * 60;
 // 缓存键带匹配逻辑版本：匹配规则改了，老用户缓存里的「无片源」立刻失效
-const MATCH_V = 'v3';
+const MATCH_V = 'v4'; // v4：cms 作品的显示名去掉版本后缀和 $ 后的串，原名进 rawName 一起参与匹配
 
 /** 测试钩子：注入假的 findSources / getWork / listSites；传 null 恢复 */
 const DEFAULT_DEPS = { findSources: realFindSources, getWork: null, listSites };
@@ -59,12 +60,23 @@ function workFromDetails(d, prev) {
   };
 }
 
+/**
+ * 资源站类目名当「类型」显示时去掉地区 / 形态部分：「动作片」→ 动作；「国产剧」「香港剧」「大陆综艺」这类纯类目不算类型（信息行已有地区 / 形态）。
+ * @param {string} typeName @returns {string[]}
+ */
+export function genresOfType(typeName) {
+  const t = String(typeName || '').trim().replace(/(?:片|剧|剧场|综艺|节目)$/, '');
+  if (!t || /国产|大陆|内地|中国|华语|香港|港|台湾|台|韩|日|欧美|美|英|泰|海外|外国|电影|电视|连续|综艺|纪录|短|动漫|动画/.test(t)) return [];
+  return [t];
+}
+
 function workFromVod(v, prev) {
   const kind = v.category?.kind && v.category.kind !== 'drop' ? v.category.kind : (prev?.kind || 'other');
   return {
     key: `cms-${v.siteId}-${v.vodId}`,
     type: kind === 'movie' ? 'movie' : 'tv',
-    name: v.name,
+    name: cleanName(v.name).title || v.name,
+    rawName: v.name,
     originalName: '',
     year: v.year ?? prev?.year ?? null,
     region: (v.category?.region && v.category.region !== 'other' ? v.category.region : regionOfArea(v.area)) || prev?.region || null,
@@ -72,7 +84,7 @@ function workFromVod(v, prev) {
     poster: v.pic || prev?.poster || null,
     backdrop: null,
     overview: v.overview || prev?.overview || '',
-    genres: v.typeName ? [v.typeName] : [],
+    genres: genresOfType(v.typeName),
     voteAverage: 0,
     cast: v.actors.slice(0, 6).map((name) => ({ id: null, name, character: '', profile: null })),
     seasons: [],
@@ -111,8 +123,10 @@ function decorate(vods) {
   const sites = new Map(deps.listSites().map((s) => [s.id, s]));
   return vods.filter((v) => sites.has(v.siteId)).map((v) => {
     const s = sites.get(v.siteId);
-    return { siteId: v.siteId, siteName: s.name, latency: s.latency_ms ?? null, vodId: v.vodId, name: v.name, year: v.year,
-      remarks: v.remarks || '', lines: v.lines };
+    const { title, lang } = cleanName(v.name);
+    // name 是资源站原名（匹配 / 线路偏好不受影响），title / lang 只给显示用；weight < 0 的站（画面烧了广告）片源排最后
+    return { siteId: v.siteId, siteName: s.name, latency: s.latency_ms ?? null, weight: s.weight ?? 0, vodId: v.vodId, name: v.name, title, lang,
+      year: v.year, remarks: v.remarks || '', lines: (v.lines || []).map((l) => ({ ...l, lang: langOf(l.name) })) };
   });
 }
 

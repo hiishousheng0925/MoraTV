@@ -162,7 +162,7 @@ test('迁移：已有数据的 v1 库升到 v2 后数据不丢、重复迁移幂
   assert.equal(d.prepare('SELECT COUNT(*) AS n FROM progress').get().n, 1);
   assert.equal(d.prepare('SELECT added_at FROM favorite').get().added_at, 9);
   assert.equal(d.prepare('SELECT COUNT(*) AS n FROM key_alias').get().n, 0);
-  assert.deepEqual(d.prepare('SELECT version FROM schema_version ORDER BY version').all().map((r) => r.version), [1, 2]);
+  assert.deepEqual(d.prepare('SELECT version FROM schema_version ORDER BY version').all().map((r) => r.version), STEPS.map((s) => s.version));
   d.close();
 });
 

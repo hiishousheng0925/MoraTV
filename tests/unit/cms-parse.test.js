@@ -42,3 +42,41 @@ test('normalizeVod', () => {
   assert.equal(v.lines.length, 1);
   assert.equal(normalizeVod({ vod_id: 1, vod_name: 'a', vod_year: '' }, 1).year, null);
 });
+
+import { cleanName, langOf } from '../../src/lib/server/cms/parse.js';
+
+test('cleanName：版本后缀变成 lang 标签，名字只留片名', () => {
+  assert.deepEqual(cleanName('繁花普通话版'), { title: '繁花', lang: '国语' });
+  assert.deepEqual(cleanName('繁花国语版'), { title: '繁花', lang: '国语' });
+  assert.deepEqual(cleanName('使徒行者粤语版'), { title: '使徒行者', lang: '粤语' });
+  assert.deepEqual(cleanName('使徒行者 粤语'), { title: '使徒行者', lang: '粤语' });
+  assert.deepEqual(cleanName('繁花[沪语版]'), { title: '繁花', lang: '沪语' });
+  assert.deepEqual(cleanName('无间道（国语）'), { title: '无间道', lang: '国语' });
+  assert.deepEqual(cleanName('寄生虫原声版'), { title: '寄生虫', lang: '原声' });
+  assert.deepEqual(cleanName('杨家将国语刘德华版'), { title: '杨家将', lang: '国语' });
+  assert.deepEqual(cleanName('鹿鼎记国粤双语版'), { title: '鹿鼎记', lang: '双语' });
+});
+
+test('cleanName：去掉 $ 及其后的串、首尾空白和多余标点', () => {
+  assert.deepEqual(cleanName('庆余年，全世界都以为我是废物太子$庆余年之大凉太子爷'), { title: '庆余年，全世界都以为我是废物太子', lang: null });
+  assert.deepEqual(cleanName('  繁花 - '), { title: '繁花', lang: null });
+  assert.deepEqual(cleanName('繁花（）'), { title: '繁花', lang: null });
+  assert.deepEqual(cleanName('繁花  第二季'), { title: '繁花 第二季', lang: null });
+});
+
+test('cleanName：不该动的不动', () => {
+  assert.deepEqual(cleanName('无间道3：终极无间'), { title: '无间道3：终极无间', lang: null });
+  assert.deepEqual(cleanName('导演剪辑版'), { title: '导演剪辑版', lang: null });
+  assert.deepEqual(cleanName('粤语'), { title: '粤语', lang: null }, '整串就是语言词：保留');
+  assert.deepEqual(cleanName('刘德华版杨家将'), { title: '刘德华版杨家将', lang: null });
+  assert.deepEqual(cleanName('苍兰诀（动画版）'), { title: '苍兰诀（动画版）', lang: null });
+  assert.deepEqual(cleanName(''), { title: '', lang: null });
+  assert.deepEqual(cleanName(undefined), { title: '', lang: null });
+});
+
+test('langOf：线路名里的语言词', () => {
+  assert.equal(langOf('粤语m3u8'), '粤语');
+  assert.equal(langOf('国语'), '国语');
+  assert.equal(langOf('lzm3u8'), null);
+  assert.equal(langOf(''), null);
+});
