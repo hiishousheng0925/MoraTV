@@ -23,9 +23,9 @@
   /** 推荐排的卡片：可用性查到 false 时变灰 */
   const cards = (items) => items.map((w) => toCard({ ...w, available: avail.of(w.key) }));
 
-  // 推荐排有失败的：toast 一次
+  // 推荐排有失败的：整个页面生命周期里只 toast 一次（invalidate 后 data 变了也不再弹）
+  let warned = false;
   $effect(() => {
-    let warned = false;
     for (const r of data.rows) Promise.resolve(r.items).then((v) => { if (v === null && !warned) { warned = true; toast.error('推荐加载失败'); } });
   });
 </script>

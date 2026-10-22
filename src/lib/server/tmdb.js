@@ -28,6 +28,13 @@ async function raw(path, params = {}, language = 'zh-CN') {
   return JSON.parse(text);
 }
 
+/** 校验当前 key（不走缓存：缓存键不含 key，换 key 后读缓存会误判）。无 key 返回 false；key 无效 / 连不上抛错。 */
+export async function checkKey() {
+  if (!hasKey()) return false;
+  await raw('/configuration', {}, null);
+  return true;
+}
+
 /** 带缓存的请求；缓存键不含 api_key。 */
 function get(path, params, ttl, language = 'zh-CN') {
   const k = `tmdb:${language}:${path}?${new URLSearchParams(params || {}).toString()}`;

@@ -14,8 +14,8 @@
 
   let { data } = $props();
 
-  let tmdbKey = $state(''), llmBase = $state(''), llmKey = $state(''), llmModel = $state('');
-  $effect(() => { tmdbKey = data.s.tmdb_key; llmBase = data.s.llm_base; llmKey = data.s.llm_key; llmModel = data.s.llm_model; });
+  // 可写的 $derived：随 data 变（保存后 invalidateAll），输入时临时改
+  let tmdbKey = $derived(data.s.tmdb_key), llmBase = $derived(data.s.llm_base), llmKey = $derived(data.s.llm_key), llmModel = $derived(data.s.llm_model);
 
   let busy = $state('');
   async function post(url, body, method = 'POST') {
@@ -47,8 +47,7 @@
   }
 
   /* ---------- 资源站 ---------- */
-  let sites = $state([]);
-  $effect(() => { sites = data.sites; });
+  let sites = $derived(data.sites);
   let newName = $state(''), newApi = $state('');
   let testing = $state({});
 

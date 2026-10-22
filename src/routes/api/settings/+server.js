@@ -32,7 +32,7 @@ export async function POST({ request }) {
   }
   let tmdbOk = null;
   if ('tmdb_key' in b && tmdb.hasKey()) {
-    try { await tmdb.trending('tv'); tmdbOk = true; } catch { tmdbOk = false; }
+    try { tmdbOk = await tmdb.checkKey(); } catch { tmdbOk = false; }
   }
   return json({ ok: true, tmdbOk, ...snapshot() }, { headers });
 }

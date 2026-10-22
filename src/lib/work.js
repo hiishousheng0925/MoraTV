@@ -12,6 +12,7 @@ export function posterUrl(p, size = 'w342') {
   if (!p) return null;
   const s = String(p);
   if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('//')) return `https:${s}`;   // 资源站偶尔给协议相对地址
   if (s.startsWith('/')) return `/img/${size}${s}`;
   return null;
 }

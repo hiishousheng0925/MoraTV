@@ -15,6 +15,7 @@
   import EpisodePicker from '$lib/ui/EpisodePicker.svelte';
   import { toast } from '$lib/ui/toast.svelte.js';
   import { clock, epText } from '$lib/work.js';
+  import { isFinished } from '$lib/progress.js';
   import { candidates, candLabel, sameEp } from '$lib/lines.js';
   import ArrowLeft from 'phosphor-svelte/lib/ArrowLeft';
 
@@ -56,7 +57,6 @@
     if (beacon && navigator.sendBeacon?.('/api/progress', new Blob([json], { type: 'application/json' }))) return;
     fetch('/api/progress', { method: 'POST', headers: { 'content-type': 'application/json' }, body: json, keepalive: true }).catch(() => {});
   }
-  const finishedNow = () => dur > 0 && (pos / dur >= 0.9 || (dur - pos < 180 && pos / dur >= 0.5));
 
   /* ---------- 播放 ---------- */
   function play(nci, ni, at = 0) {
@@ -135,7 +135,11 @@
         const at = rec && !rec.finished && rec.position > 5 ? rec.position : 0;
         // 第一条线路没有这一集：找有的那条；都没有就落到最后一集
         let nci = cands.findIndex((c) => c.episodes.length >= target);
-        if (nci < 0) { nci = 0; target = Math.min(target, cands[0].episodes.length); }
+        if (nci < 0) {
+          nci = 0;
+          // 自己推出来的「下一集」不存在 = 最后一集已经看完：从第 1 集重新放；地址里点名的集数越界就落到最后一集
+          target = askE ? Math.min(target, cands[0].episodes.length) : 1;
+        }
         play(nci, target - 1, at);
         if (at > 0) toast.ok(`已从 ${clock(at)} 继续`);
       })
@@ -143,12 +147,11 @@
     return () => ctl.abort();
   });
 
-  // 定时写进度 + 卡住检测
+  // 卡住检测（进度在 ontime 里按 SAVE_MS 节流写，这里不写）
   $effect(() => {
     const t = setInterval(() => {
       if (!src) return;
       if (Date.now() - lastTick > STALL_MS && (!loaded || (started && !paused))) { fail(); return; }
-      if (started && !paused) save();
     }, 1000);
     const flush = () => save(true);
     addEventListener('beforeunload', flush);
@@ -159,7 +162,7 @@
   function ontime(t, d) {
     if (t !== pos) { lastTick = Date.now(); if (t > 0.5) started = true; }
     pos = t; dur = d || dur;
-    if (finishedNow() && !watched.includes(i + 1)) watched = [...watched, i + 1];
+    if (isFinished(pos, dur) && !watched.includes(i + 1)) watched = [...watched, i + 1];
     if (Date.now() - lastSaveAt >= SAVE_MS) { lastSaveAt = Date.now(); save(); }
   }
 

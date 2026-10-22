@@ -25,14 +25,13 @@
   const last = $derived(data.progress.last);
 
   /** 当前季：上次看到的那一季，否则第一季 */
-  let season = $state(1);
-  $effect(() => {
+  // 可写的 $derived（项目规则：从 props 派生的值不用 $state + $effect 复制，服务端渲染时就是对的）；点季 tab / 想看时临时改
+  let season = $derived.by(() => {
     const s = data.progress.last?.season;
-    season = multi ? (seasons.some((x) => x.season === s) ? s : seasons[0].season) : (isMovie ? 0 : 1);
+    return multi ? (seasons.some((x) => x.season === s) ? s : seasons[0].season) : (isMovie ? 0 : 1);
   });
 
-  let fav = $state(false);
-  $effect(() => { fav = data.fav; });
+  let fav = $derived(data.fav);
 
   let loading = $state(true);
   let cands = $state([]);
@@ -69,7 +68,9 @@
   const main = $derived.by(() => {
     if (!last) return { label: '播放', href: watchHref(season, 1) };
     if (last.finished) {
-      if (isMovie) return { label: '重新播放', href: watchHref(last.season, 1) };
+      // 电影看完 / 最后一集看完（这一季的片源里没有下一集）：从头再放
+      const atEnd = isMovie || (!loading && last.season === season && cur && last.episode >= cur.episodes.length);
+      if (atEnd) return { label: '重新播放', href: watchHref(last.season, 1) };
       return { label: `继续第 ${last.episode + 1} 集`, href: watchHref(last.season, last.episode + 1) };
     }
     return { label: `${isMovie ? '继续播放' : `继续第 ${last.episode} 集`} ${clock(last.position)}`, href: watchHref(last.season, last.episode) };

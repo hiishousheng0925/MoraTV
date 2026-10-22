@@ -3,21 +3,14 @@
  * 纯数据库操作，不发网络请求。
  */
 import { db } from './db.js';
+import { isFinished } from '../progress.js';
 
 /** 严格递增的毫秒时间戳：同一毫秒里连写两条时「最近」的顺序仍然确定 */
 let lastStamp = 0;
 const now = () => (lastStamp = Math.max(Date.now(), lastStamp + 1));
 
-/**
- * 看完了没有：≥90%，或剩余不到 3 分钟（剩余规则只在看过一半之后才算，免得几分钟的短剧一打开就算看完）。
- * @param {number} position @param {number} duration
- */
-export function isFinished(position, duration) {
-  const p = Number(position) || 0, d = Number(duration) || 0;
-  if (d <= 0 || p <= 0) return false;
-  if (p / d >= 0.9) return true;
-  return d - p < 180 && p / d >= 0.5;
-}
+/** 看完判定的唯一定义在 $lib/progress.js（播放页也用），这里转出 */
+export { isFinished };
 
 /* ---------- 作品缓存（title 表） ---------- */
 

@@ -22,7 +22,7 @@
        role="status" aria-live="polite">
     {#each toast.items as t (t.id)}
       <!-- 带 action 的整条是链接（「去设置 →」），否则是点了就关的按钮 -->
-      <svelte:element this={t.action ? 'a' : 'button'} href={t.action?.href} role={t.action ? 'link' : 'button'} tabindex="0" onclick={() => dismiss(t.id)}
+      <svelte:element this={t.action ? 'a' : 'button'} href={t.action?.href} role={t.action ? 'link' : 'button'} onclick={() => dismiss(t.id)}
               in:fly={{ ...motion, duration: 180 }} out:fly={{ ...motion, duration: 140 }}
               class="pointer-events-auto flex items-start gap-2.5 rounded-xl border bg-ink-900 px-3.5 py-3 text-left text-[13.5px] leading-snug
                      shadow-[0_12px_32px_-8px_rgb(0_0_0/0.45),0_2px_6px_rgb(0_0_0/0.18)] sm:max-w-[22rem]
