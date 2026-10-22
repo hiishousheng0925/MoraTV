@@ -165,3 +165,13 @@ test('迁移：已有数据的 v1 库升到 v2 后数据不丢、重复迁移幂
   assert.deepEqual(d.prepare('SELECT version FROM schema_version ORDER BY version').all().map((r) => r.version), [1, 2]);
   d.close();
 });
+
+test('cms 页面重定向的查询串：多季别名把 ?s= 改成登记的季，集号不动；无季别名原样', () => {
+  lib.registerAlias('cms-4-1', 'tv-91', 2);
+  lib.registerAlias('cms-4-2', 'tv-92');
+  assert.equal(lib.aliasRedirectSearch('cms-4-1', '?s=1&e=5'), '?s=2&e=5');
+  assert.equal(lib.aliasRedirectSearch('cms-4-1', '?e=5'), '?e=5', '没带 s 不加');
+  assert.equal(lib.aliasRedirectSearch('cms-4-1', ''), '');
+  assert.equal(lib.aliasRedirectSearch('cms-4-2', '?s=1&e=5'), '?s=1&e=5');
+  assert.equal(lib.aliasRedirectSearch('tv-1', '?s=1'), '?s=1');
+});

@@ -42,6 +42,19 @@ export function resolveKey(key) {
   return aliasOf(key)?.key ?? String(key || '');
 }
 
+/**
+ * cms 页面 307 到 TMDB 页面时的查询串：别名带季号（多季剧的某一季）时把 ?s= 改成那一季（集号不变）。
+ * @param {string} search url.search（含 ?，可为空）
+ * @returns {string}
+ */
+export function aliasRedirectSearch(key, search) {
+  const al = aliasOf(key);
+  const q = new URLSearchParams(search || '');
+  if (al?.season != null && q.has('s')) q.set('s', String(al.season));
+  const out = q.toString();
+  return out ? '?' + out : '';
+}
+
 /** @returns {{key: string, season: number|null}|null} */
 function aliasOf(key) {
   const k = String(key || '');
