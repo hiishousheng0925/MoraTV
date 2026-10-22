@@ -11,7 +11,7 @@
   import EmptyState from '$lib/ui/EmptyState.svelte';
   import { toast } from '$lib/ui/toast.svelte.js';
   import { posterUrl, REGION_CN, KIND_CN, clock } from '$lib/work.js';
-  import { candidates, candLabel } from '$lib/lines.js';
+  import { candidates, candParts } from '$lib/lines.js';
   import Play from 'phosphor-svelte/lib/Play';
   import Heart from 'phosphor-svelte/lib/Heart';
   import FilmSlate from 'phosphor-svelte/lib/FilmSlate';
@@ -179,10 +179,12 @@
       {:else}
         <div class="mt-2 flex max-h-[26rem] flex-col gap-1.5 overflow-y-auto">
           {#each cands as c, i (c.id)}
+            {@const p = candParts(c, w.name)}
             <button onclick={() => choose(i)} aria-pressed={pick === i}
                     class="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-[13px] transition
                            {pick === i ? 'border-accent bg-accent/10' : 'border-ink-700 bg-ink-900 hover:border-ink-400'}">
-              <span class="min-w-0 flex-1 truncate {pick === i ? 'font-medium text-accent-ink' : 'text-ink-100'}">{candLabel(c, w.name)}</span>
+              <span class="min-w-0 flex-1 truncate {pick === i ? 'font-medium text-accent-ink' : 'text-ink-100'}">{p.text}</span>
+              {#if p.lang}<span class="shrink-0 rounded-md bg-ink-800 px-1.5 py-0.5 text-[11px] text-ink-200" data-lang>{p.lang}</span>{/if}
               <span class="shrink-0 tabular-nums text-ink-400">{c.episodes.length} 集</span>
               {#if c.latency != null}<span class="w-16 shrink-0 text-right tabular-nums text-ink-400">{c.latency} ms</span>{/if}
             </button>

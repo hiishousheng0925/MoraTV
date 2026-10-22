@@ -6,6 +6,7 @@
    *   · 进度：每 10 秒、暂停、切集 / 换线路、关闭 / 离开页面时写一次
    *   · 线路加载失败（播放器报错，或 15 秒没动静）：toast 并自动换同一集的下一条线路
    *   · 播完由播放器倒数 5 秒自动下一集
+   *   · 窗口宽 ≥ 1800：剧场模式（按钮 / T 键，记在 localStorage moratv.player.theater）——播放器宽度跟窗口走（按窗口高度封顶），选集栏移到下面
    */
   import { untrack } from 'svelte';
   import { replaceState, goto } from '$app/navigation';
@@ -18,6 +19,7 @@
   import { isFinished } from '$lib/progress.js';
   import { candidates, candLabel, sameEp } from '$lib/lines.js';
   import ArrowLeft from 'phosphor-svelte/lib/ArrowLeft';
+  import { media } from '$lib/media.svelte.js';
 
   let { data } = $props();
   const w = $derived(data.work);
@@ -169,6 +171,17 @@
   const hasPrev = $derived(i > 0);
   const hasNext = $derived(i >= 0 && i < eps.length - 1);
   const roads = $derived(cands.map((c) => ({ name: candLabel(c, w.name) })));
+
+  /* ---------- 剧场模式（窗口宽 ≥ 1800 才有；开关记在 localStorage，丢了就是关） ---------- */
+  const THEATER_KEY = 'moratv.player.theater';
+  let theaterOn = $state(false);
+  $effect(() => { try { theaterOn = localStorage.getItem(THEATER_KEY) === '1'; } catch { /* 读不到当关 */ } });
+  const huge = $derived(media.huge);
+  const theater = $derived(huge && theaterOn);
+  function toggleTheater() {
+    theaterOn = !theaterOn;
+    try { localStorage.setItem(THEATER_KEY, theaterOn ? '1' : '0'); } catch { /* 记不住也只是下次回到默认 */ }
+  }
 </script>
 
 {#snippet pending()}
@@ -183,15 +196,18 @@
   </div>
 {/snippet}
 
-<Page>
+<Page full={theater}>
+  <!-- 剧场模式：外框不限 1280，播放器宽度跟着窗口（按窗口高度封顶，整个画面留在首屏），选集栏移到下面 -->
+  <div class={theater ? 'theater mx-auto w-full' : ''} data-layout={theater ? 'theater' : 'normal'}>
   <div class="mb-4 max-sm:hidden">
     <a href="/title/{encodeURIComponent(w.key)}" class="inline-flex items-center gap-1.5 text-[13px] text-ink-400 transition hover:text-accent">
       <ArrowLeft size={15} weight="bold" />详情
     </a>
   </div>
-  <div class="lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-x-5">
+  <div class={theater ? '' : 'lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-x-5'}>
     <div class="stage relative aspect-video overflow-hidden bg-black max-sm:-mx-4 sm:rounded-2xl lg:self-start">
       <Player {src} {start} hls title={w.name} {epLabel} {pending} {hasPrev} {hasNext}
+              {theater} ontheater={huge ? toggleTheater : null}
               onprev={() => goEp(i - 1)} onnext={() => goEp(i + 1)}
               onback={() => (history.length > 1 ? history.back() : goto('/title/' + encodeURIComponent(w.key)))}
               {ontime} onfail={fail}
@@ -207,15 +223,19 @@
       </p>
     </div>
 
-    <aside class="mt-6 flex min-h-0 flex-col rounded-2xl border border-ink-700 bg-ink-900/60 p-2.5 lg:col-start-2 lg:row-start-1 lg:mt-0 lg:h-0 lg:min-h-full">
-      <EpisodePicker {eps} {roads} road={ci} onroad={setLine} curI={i >= 0 ? i : null} {watched} {loading} onplay={goEp} />
+    <aside class="mt-6 flex min-h-0 flex-col rounded-2xl border border-ink-700 bg-ink-900/60 p-2.5
+                  {theater ? '' : 'lg:col-start-2 lg:row-start-1 lg:mt-0 lg:h-0 lg:min-h-full'}">
+      <EpisodePicker {eps} {roads} road={ci} wide={theater} onroad={setLine} curI={i >= 0 ? i : null} {watched} {loading} onplay={goEp} />
       {#if !loading && !cands.length}<p class="px-1.5 py-3 text-[12px] text-ink-400">暂无片源</p>{/if}
     </aside>
+  </div>
   </div>
   <div class="h-6"></div>
 </Page>
 
 <style>
+  /* 16:9 的播放器高度 = 窗口高 - 顶栏 - 页面上边距 - 「详情」返回行 - 一点余量 */
+  .theater { max-width: calc((100dvh - var(--hdr-h, 3.25rem) - 5.5rem) * 16 / 9); }
   .stage { box-shadow: 0 28px 70px -24px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.06); }
   :global(:root[data-theme='light']) .stage { box-shadow: 0 24px 56px -22px rgb(16 20 28 / 0.5), 0 0 0 1px rgb(16 20 28 / 0.06); }
 </style>

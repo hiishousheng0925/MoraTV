@@ -90,8 +90,9 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 | `onback` `immersive` | 窄窗口左上角返回；铺满时留着并写片名 |
 | `onlike` `liked` | 可选。右上角爱心；不传不显示 |
 | `onshot(blob\|null, t)` | 可选。右上角截图键；不传不显示 |
+| `theater` `ontheater` | 可选。剧场模式按钮（控制条，画中画右边）+ T 键；不传不显示。布局由调用方换（播放页只在 `media.huge` 即窗口宽 ≥ 1800 时传，开关记在 `moratv.player.theater`） |
 
-快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集；倍速、音量记在 localStorage（`moratv.player.*`）。
+快捷键：空格 / K 暂停，← → 5 秒，↑ ↓ 音量，F 全屏，M 静音，N / P 下一集 / 上一集，T 剧场模式（传了 ontheater 时）；倍速、音量记在 localStorage（`moratv.player.*`）。
 
 其余组件：`Chip` `Select` `Sheet` `Confirm` `Pager` `CardGrid`（+ `PosterCard`，作品字段 `key/title/poster/year/region/kind/badge/progress/sub`，链接 `/title/<key>`）`EpisodePicker`（`eps/roads/road/onroad/curI/watched/onplay`）`TabBar`（页内标签）`SettingsGroup` `Toggle` `SearchBox` `EmptyState` `Section` `Page` `Progress` `ThemeToggle` `BrandMark`；样式常量 `btn.js` `bar.js` `grid.js`。
 
@@ -106,6 +107,13 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - 回归用例：`tests/fixtures/match-regression.json`（条目池取自真实资源站），改匹配逻辑先跑它。
 - `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
 - 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。
+
+## 显示名 / 片源行（0.1.2 起）
+
+- 资源站条目名只在**显示**时清洗：`cms/parse.js` 的 `cleanName(raw) -> {title, lang}`（去 `$` 及其后、末尾「普通话版 / 粤语版 / [沪语版] / 国语刘德华版」→ lang、首尾标点）。vod 的 `name` 永远是原名（匹配、`normTitle` 用它）。资源站作品（聚类 / 详情 / 最近更新）的 `name` 是清洗后的，原名放 `rawName`，`workNames` 把它也算进去，所以匹配不会因为显示名变短而丢片源。
+- `sourcesFor` 的片源带 `title`（显示名）`lang` `weight`，线路带 `lang`（线路名里的语言词）。片源行 = `lines.js candParts`：「站点 · 线路 N」，N 是该条目里 m3u8 线路的序号（资源站给的顺序，稳定），条目显示名和作品名不同才带上，lang 单独做小标签；**线路偏好 line_pref 仍按内部线路名（vod_play_from）记**。
+- 站点 `weight < 0` 的片源排最后（手动选过的仍排第一）。内置 360资源（画面烧录博彩字幕）缺省 `LOW_WEIGHT`=-10；老库靠迁移第 3 步改（只改 builtin 且仍为 0 的那行）。
+- TMDB：角色名没有汉字就不显示（`zhCharacter`）；zh-CN 下仍是英文的剧集类型按 id 换中文（`genreNames`），资源站类目名只有像题材（「动作片」→ 动作）才当类型。
 
 ## 演员搜索（0.1.2 起）
 

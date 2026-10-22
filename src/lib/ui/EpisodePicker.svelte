@@ -12,9 +12,10 @@
    *   watched   已看过的集号集合（Set<number> 或数组）                     默认 []
    *   loading   还在取剧集：画 8 行骨架
    *   onplay    点某一集 (下标)
+   *   wide      整行宽（播放页剧场模式放在播放器下面）：格子按宽度自动排，不拉成 5 列大长条   默认 false
    */
   import Select from './Select.svelte';
-  let { eps = [], roads = [], road = 0, onroad, curI = null, watched = [], loading = false, onplay } = $props();
+  let { eps = [], roads = [], road = 0, onroad, curI = null, watched = [], loading = false, onplay, wide = false } = $props();
 
   const seen = $derived(new Set(watched));
   const epNo = (ep, i) => ep.n ?? i + 1;
@@ -49,7 +50,7 @@
     {/each}
   </div>
 {:else if eps.length}
-  <div bind:this={list} class="ep-list relative mt-1.5 grid min-h-0 flex-1 grid-cols-5 content-start gap-1.5 overflow-y-auto sm:grid-cols-8 lg:grid-cols-5">
+  <div bind:this={list} class="ep-list relative mt-1.5 grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto {wide ? 'grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]' : 'grid-cols-5 sm:grid-cols-8 lg:grid-cols-5'}">
     {#each eps as ep, i (ep.url)}
       {@const n = epNo(ep, i)}
       {@const on = curI === i}

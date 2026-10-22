@@ -52,7 +52,8 @@
 </script>
 
 <Page>
-  <div class="mx-auto max-w-2xl pb-2 pt-6 sm:pt-12">
+  <div class="home">
+  <div class="home-top mx-auto max-w-2xl pb-2 pt-6 sm:pt-12">
     <SearchForm autofocus big />
   </div>
 
@@ -83,5 +84,14 @@
       {/if}
     {/await}
   {/each}
+  </div>
   <div class="h-6"></div>
 </Page>
+
+<style>
+  /* 矮窗口（1280×720 之类）：搜索区上下留白减半、区块间距收紧，首屏要看得到第一排卡片 */
+  @media (min-width: 640px) and (max-height: 800px) {
+    .home-top { padding-top: 1.5rem; padding-bottom: 0; }
+    .home :global(section) { margin-top: 1.25rem; }
+  }
+</style>
