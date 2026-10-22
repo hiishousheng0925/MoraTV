@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { filterAds } from '../../src/lib/server/stream/adfilter.js';
 
-const fx = (name) => readFileSync(join(import.meta.dirname, '..', 'fixtures', 'm3u8', name), 'utf8');
+// git 在 Windows 上可能把 fixture 检出成 CRLF，统一成 LF（CRLF 另有专门的用例）
+const fx = (name) => readFileSync(join(import.meta.dirname, '..', 'fixtures', 'm3u8', name), 'utf8').replace(/\r\n/g, '\n');
 const segs = (t) => t.split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
 const discs = (t) => t.split(/\r?\n/).filter((l) => l.trim() === '#EXT-X-DISCONTINUITY').length;
 const lastLine = (t) => t.trim().split(/\r?\n/).at(-1);
