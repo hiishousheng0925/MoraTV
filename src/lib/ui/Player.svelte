@@ -22,6 +22,10 @@
    *   onfail()     加载错误 / hls 致命错误
    *   onmeta(height)    元数据就绪时回调视频高度
    *   pending      还没有 src 时盖在画面上的内容（snippet）
+   *   start        这个地址从第几秒开始放（续播）；换地址时调用方一起换                默认 0
+   *   hls          强制走 hls.js（地址里看不出 .m3u8 时，比如本地代理）                默认 false
+   *   ontime(t, dur)   timeupdate 时回调当前秒数和总时长（记进度用）
+   *   onpause(t, dur) / onplay()   暂停 / 开始播放
    */
   import Play from 'phosphor-svelte/lib/Play';
   import Pause from 'phosphor-svelte/lib/Pause';
@@ -43,7 +47,8 @@
   import { store, fmt } from './playerUtil.js';
 
   let { src, title = '', epLabel = '', liked = false, onlike, onshot, onback = null, immersive = false,
-        hasPrev = false, hasNext = false, onprev, onnext, onprogress, onfail, onmeta, pending } = $props();
+        hasPrev = false, hasNext = false, onprev, onnext, onprogress, onfail, onmeta, pending,
+        start = 0, hls: forceHls = false, ontime: ontimeCb, onpause: onpauseCb, onplay: onplayCb } = $props();
 
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -73,7 +78,7 @@
     let hls, dead = false;
     countdown = 0; clearInterval(cdTimer);
     (async () => {
-      if (!/\.m3u8/i.test(s)) { v.src = s; return; }
+      if (!forceHls && !/\.m3u8/i.test(s)) { v.src = s; return; }
       const { default: Hls } = await import('hls.js');
       if (dead) return;
       if (!Hls.isSupported()) { if (v.canPlayType('application/vnd.apple.mpegurl')) v.src = s; else onfail?.(); return; }
@@ -103,6 +108,7 @@
     time = video.currentTime;
     if (video.buffered.length) buffered = video.buffered.end(video.buffered.length - 1);
     if (dur) onprogress?.(time / dur);
+    ontimeCb?.(time, dur);
   }
   function onended() {
     if (!hasNext) return;
@@ -187,9 +193,9 @@
      onpointermove={poke}>
   <!-- svelte-ignore a11y_media_has_caption -->
   <video bind:this={video} autoplay playsinline class="h-full w-full"
-         onplay={() => { paused = false; poke(); }} onpause={() => { paused = true; shown = true; }}
+         onplay={() => { paused = false; poke(); onplayCb?.(); }} onpause={() => { paused = true; shown = true; onpauseCb?.(video.currentTime, dur); }}
          onwaiting={() => (waiting = true)} onplaying={() => (waiting = false)} oncanplay={() => (waiting = false)}
-         ontimeupdate={ontime} onloadedmetadata={() => { dur = video.duration; applyRate(); if (resumeAt) video.currentTime = resumeAt; onmeta?.(video.videoHeight); }}
+         ontimeupdate={ontime} onloadedmetadata={() => { dur = video.duration; applyRate(); const at = resumeAt || start; if (at > 0 && (!video.duration || at < video.duration - 1)) video.currentTime = at; onmeta?.(video.videoHeight); }}
          onloadeddata={() => (ready = true)}
          ondurationchange={() => (dur = video.duration)} onended={onended} onerror={() => onfail?.()}></video>
 

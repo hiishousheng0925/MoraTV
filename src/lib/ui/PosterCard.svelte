@@ -5,7 +5,7 @@
    * props
    *   item   作品：key / title / poster（可空）/ year / region / kind / badge（右上角小标，如「暂无片源」）/
    *          progress（0–1，给「继续观看」的进度条）/ sub（海报下第二行，如「第 3 集 12:30」）
-   *          key 决定链接：/title/<key>
+   *          key 决定链接：/title/<key>；item.href 优先（「继续观看」直接去播放页）
    *   gray   整张变灰（没有片源的作品）                     默认 false
    *   eager  封面立即加载（首屏第一排用，其余懒加载）         默认 false
    * 例：<PosterCard item={{ key: 'tv-1399', title: '权力的游戏', poster: '/img?u=…', year: 2011, region: '欧美' }} />
@@ -19,7 +19,7 @@
   const meta = $derived([item.year, item.region, item.kind].filter(Boolean).join(' · '));
 </script>
 
-<a href="/title/{item.key}" class="group block min-w-0 transition-transform duration-200 ease-out hover:-translate-y-0.5 {gray ? 'opacity-55 grayscale' : ''}">
+<a href={item.href ?? `/title/${encodeURIComponent(item.key)}`} class="group block min-w-0 transition-transform duration-200 ease-out hover:-translate-y-0.5 {gray ? 'opacity-55 grayscale' : ''}">
   <div class="relative overflow-hidden rounded-xl bg-ink-800 shadow-md shadow-black/30 ring-1 ring-white/5
               transition-[box-shadow] duration-200 group-hover:shadow-lift group-hover:ring-accent/40">
     <div class="cover relative aspect-2/3 overflow-hidden">
