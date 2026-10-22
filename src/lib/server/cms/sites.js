@@ -69,7 +69,10 @@ export async function testSite(site, { timeoutMs = 8000 } = {}) {
 
 const SEARCH_CONCURRENCY = 8;
 
-/** 并发搜所有启用站点；单站失败不影响整体，失败的记 fail_streak；排序：fail_streak 小、weight 大的站点结果在前。 */
+/**
+ * 并发搜所有启用站点；单站失败不影响整体，失败的记 fail_streak；排序：fail_streak 小、weight 大的站点结果在前。
+ * 返回的数组带 answered（有几个站正常回了 JSON）：全都没回时「没结果」不能当真（调用方别把它缓存成「无片源」）。
+ */
 export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
   const list = listSites({ enabledOnly: true });
   const limit = pLimit(SEARCH_CONCURRENCY);
@@ -77,9 +80,11 @@ export async function searchAll(keyword, { timeoutMs = 8000 } = {}) {
     const t0 = Date.now();
     const j = await cmsGet(s, { ac: 'videolist', wd: keyword, pg: 1 }, timeoutMs);
     recordResult(s.id, !!j, Date.now() - t0);
-    return { site: s, vods: toVods(j, s.id) };
+    return { site: s, ok: !!j, vods: toVods(j, s.id) };
   })));
-  return results
+  const out = results
     .sort((a, b) => (a.site.fail_streak - b.site.fail_streak) || (b.site.weight - a.site.weight) || (a.site.id - b.site.id))
     .flatMap((r) => r.vods);
+  out.answered = results.filter((r) => r.ok).length;
+  return out;
 }

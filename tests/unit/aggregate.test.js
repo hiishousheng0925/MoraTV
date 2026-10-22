@@ -226,3 +226,12 @@ test('TMDB 把续季单列成一部（「溏心风暴3」）时，续季片源�
   assert.deepEqual(s3.sources.map((v) => v.vodId), ['3']);
   assert.ok(s3.available);
 });
+
+test('findSources：所有站点都没回应时 anyAnswered=false，有回应时为 true', async () => {
+  agg._setDeps({ searchAll: async () => Object.assign([], { answered: 0 }), tmdb: { hasKey: () => false } });
+  const none = await agg.findSources({ name: '繁花', year: 2023, type: 'tv' });
+  assert.equal(none.length, 0);
+  assert.equal(none.anyAnswered, false);
+  agg._setDeps({ searchAll: async () => Object.assign([], { answered: 3 }), tmdb: { hasKey: () => false } });
+  assert.equal((await agg.findSources({ name: '繁花', year: 2023, type: 'tv' })).anyAnswered, true);
+});

@@ -7,12 +7,20 @@
 import * as tmdb from './tmdb.js';
 import { listSites } from './cms/sites.js';
 import { detailSite } from './cms/client.js';
-import { findSources } from './search/aggregate.js';
+import { findSources as realFindSources } from './search/aggregate.js';
 import { regionOfCountry, regionOfArea } from './search/normalize.js';
 import { cached } from './cache.js';
 import { saveTitle, loadTitle } from './library.js';
 
 const SRC_TTL = 30 * 60;
+
+/** 测试钩子：注入假的 findSources / getWork / listSites；传 null 恢复 */
+const DEFAULT_DEPS = { findSources: realFindSources, getWork: null, listSites };
+let deps = DEFAULT_DEPS;
+export function _setDeps(d) { deps = d ? { ...DEFAULT_DEPS, ...d } : DEFAULT_DEPS; }
+
+/** 所有资源站都没回应：空结果不可信，抛出去，谁都不缓存它 */
+export class NoSiteAnswered extends Error { constructor() { super('资源站都没有回应'); this.status = 502; } }
 const AVAIL_TTL = 86400;
 
 /** TMDB 中文类型名 -> 形态 */
@@ -97,7 +105,7 @@ export async function getWork(key) {
 
 /** 片源加上站点名和测得的延迟 */
 function decorate(vods) {
-  const sites = new Map(listSites().map((s) => [s.id, s]));
+  const sites = new Map(deps.listSites().map((s) => [s.id, s]));
   return vods.filter((v) => sites.has(v.siteId)).map((v) => {
     const s = sites.get(v.siteId);
     return { siteId: v.siteId, siteName: s.name, latency: s.latency_ms ?? null, vodId: v.vodId, name: v.name, year: v.year,
@@ -115,19 +123,23 @@ export const seasonParam = (work, season) => (work?.seasons?.length > 1 && Numbe
 export async function sourcesFor(work, season) {
   const s = seasonParam(work, season);
   const list = await cached(`src:${work.key}:${s ?? ''}`, SRC_TTL, async () => {
-    const found = await findSources(work, s);
+    const found = await deps.findSources(work, s);
     const own = work.vod && work.vod.lines?.length ? [work.vod] : [];
     const seen = new Set();
     const all = [...own, ...found].filter((v) => !seen.has(`${v.siteId}:${v.vodId}`) && seen.add(`${v.siteId}:${v.vodId}`));
+    if (!all.length && found.anyAnswered === false) throw new NoSiteAnswered();
     return all.length ? all : null;
   });
   return decorate(list || []);
 }
 
-/** 推荐卡片的可用性：有没有至少一条片源。结果缓存 1 天；取不到作品时抛（不缓存）。 */
+/**
+ * 推荐卡片的可用性：有没有至少一条片源。结果缓存 1 天。
+ * 取不到作品、或所有资源站都没回应时抛（不缓存）—— 只有至少一个站正常回了「没有」才记成无片源。
+ */
 export async function availability(key) {
   const r = await cached(`avail:${key}`, AVAIL_TTL, async () => {
-    const work = await getWork(key);
+    const work = await (deps.getWork || getWork)(key);
     if (!work) throw new Error('作品不存在');
     return { ok: (await sourcesFor(work)).length > 0 };
   });

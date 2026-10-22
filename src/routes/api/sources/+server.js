@@ -18,7 +18,7 @@ export async function GET({ url }) {
     return json({ sources, pref: getLinePref(key) }, { headers });
   } catch (e) {
     console.error('[sources]', e?.message || e);
-    return json({ sources: [], pref: null, error: '片源加载失败' }, { status: 500, headers });
+    return json({ sources: [], pref: null, error: e?.status === 502 ? e.message : '片源加载失败' }, { status: e?.status === 502 ? 502 : 500, headers });
   }
 }
 

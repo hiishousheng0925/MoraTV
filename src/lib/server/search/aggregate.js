@@ -43,10 +43,14 @@ const regionOk = (a, b) => !a || !b || a === 'other' || b === 'other' || a === b
 const kindOk = (a, b) => !a || !b || a === 'other' || b === 'other' || a === b;
 const isSeries = (k) => k !== 'movie';
 
-/** 多个关键词并发搜所有站点，按 (siteId, vodId) 去重并滤掉不可用条目 */
+/**
+ * 多个关键词并发搜所有站点，按 (siteId, vodId) 去重并滤掉不可用条目。
+ * 返回的数组带 anyAnswered：至少有一个站正常回应过（searchAll 不报 answered 时按「回应了」算）。
+ */
 async function searchTerms(terms, seen = new Set()) {
-  const lists = await Promise.all(terms.map((t) => deps.searchAll(t).catch(() => [])));
+  const lists = await Promise.all(terms.map((t) => deps.searchAll(t).catch(() => Object.assign([], { answered: 0 }))));
   const out = [];
+  out.anyAnswered = lists.some((l) => l.answered == null || l.answered > 0);
   for (const v of lists.flat()) {
     const k = `${v.siteId}:${v.vodId}`;
     if (!usable(v) || seen.has(k)) continue;
@@ -312,6 +316,7 @@ export async function searchTitles(q) {
 
 /**
  * 给一个作品找片源（详情页 / 演员作品用）。season 不给 = 所有季。
+ * 返回的数组带 anyAnswered（false = 所有资源站都没回应，空结果不可信）。
  * @param {{name: string, originalName?: string, year?: number|null, region?: string|null, kind?: string, type?: string, tmdb?: any}} work
  * @param {number} [season]
  */
@@ -324,7 +329,7 @@ export async function findSources(work, season) {
   const terms = [...new Set(base.flatMap(variants))];
   const vods = await searchTerms(terms);
   const isMovie = work.type === 'movie' || work.kind === 'movie';
-  return sortSources(vods.filter((v) => {
+  const found = sortSources(vods.filter((v) => {
     if (!nts.has(ntOf(v))) return false;
     if (!regionOk(work.region, vodRegion(v))) return false;
     const vk = v.category?.kind;
@@ -335,6 +340,8 @@ export async function findSources(work, season) {
     if (s > 1) return v.year >= work.year - 1;
     return Math.abs(v.year - work.year) <= 1;
   }));
+  found.anyAnswered = vods.anyAnswered;
+  return found;
 }
 
 /**
