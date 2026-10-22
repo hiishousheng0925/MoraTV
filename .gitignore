@@ -6,4 +6,9 @@ build.dev/
 desktop/.stage/
 desktop/dist/
 desktop/node_modules/
+.env
+.env.*
 *.db
+*.db-wal
+*.db-shm
+.DS_Store

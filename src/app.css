@@ -1,0 +1,174 @@
+@import 'tailwindcss';
+
+/**
+ * 主题：语义 token 在下面用 CSS 变量定义，Tailwind 的 ink-* 颜色名映射到这些变量。
+ * 组件里写 `text-ink-400` / `bg-ink-900` 就行，换主题只改下面的变量值。
+ */
+@theme {
+  --color-ink-950: var(--c-bg);
+  --color-ink-900: var(--c-surface);
+  --color-ink-800: var(--c-surface-2);
+  --color-ink-700: var(--c-border);
+  --color-ink-600: var(--c-border-strong);
+  --color-ink-400: var(--c-muted);
+  /* 正文色（最亮 / 最深的一档，= body 的字色） */
+  --color-ink-100: var(--c-text);
+  --color-ink-200: var(--c-text-soft);
+  --color-accent: var(--c-accent);
+  /* 强调色淡底（bg-accent/5–25：选中的 chip、下拉选中行）上的强调色字，两套主题对比度都 >=4.5 */
+  --color-accent-ink: var(--c-accent-ink);
+  --color-warm: var(--c-warm);
+  --color-warm-fill: var(--c-warm-fill);
+  /* 删除 / 报错的红字 */
+  --color-danger: var(--c-danger);
+  /* 危险操作的实色按钮底（确认删除），上面配白字 */
+  --color-danger-fill: var(--c-danger-fill);
+  /* 角标的底（配白字），压在任意海报上不随主题变 */
+  --color-short-badge: var(--c-short-badge);
+  /* 主按钮上的前景色：亮色 accent 深 -> 白字；暗色 accent 浅 -> 近黑字 */
+  --color-on-accent: var(--c-on-accent);
+  /* 品牌渐变的第二色 */
+  --color-brand-2: var(--c-brand-2);
+  --color-on-fill: var(--c-on-fill);
+  /* 压在海报上的小圆点（绿）/ 页面底色上的绿字 */
+  --color-live: var(--c-live);
+  --color-live-ink: var(--c-live-ink);
+  /* 阴影：shadow-lift = 卡片悬停抬起；shadow-hero = 大海报 / hero 卡 */
+  --shadow-lift: var(--c-shadow-lift);
+  --shadow-hero: var(--c-shadow-hero);
+}
+
+/* 暗色（默认。只有亮 / 暗两态，不做跟随系统）*/
+:root {
+  color-scheme: dark;
+  --c-bg: #0b0e13;
+  --c-surface: #161b23;
+  --c-surface-2: #212833;
+  --c-border: #2e3744;
+  --c-border-strong: #3e4a5c;
+  --c-muted: #8d99aa;
+  --c-text-soft: #c5cdd9;
+  --c-text: #e8edf3;
+  --c-accent: #3dd6c0;
+  --c-accent-ink: #9cf0e3;
+  --c-on-accent: #0b0e13;
+  --c-brand-2: #5b9bff;
+  --c-warm: #ffb454;
+  --c-warm-fill: #ffb454;
+  --c-danger: #fca5a5;
+  /* 下面两个两套主题同一个值：白字在 #dc2626 上 4.83:1 */
+  --c-danger-fill: #dc2626;
+  --c-short-badge: #461901;
+  --c-cover: linear-gradient(145deg, #262f3d, #1a212c);
+  /* 暗色不用投影（在深底上看不见），改用一道顶部内高光模拟抬升 */
+  --c-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+  --c-on-fill: #1a1408;
+  --c-live: #4ade80;
+  --c-live-ink: #5ee08f;
+  --c-shadow-lift: 0 14px 28px -12px rgb(0 0 0 / 75%), 0 4px 10px -4px rgb(0 0 0 / 50%);
+  --c-shadow-hero: 0 24px 48px -12px rgb(0 0 0 / 70%), 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+/* 亮色 */
+:root[data-theme='light'] {
+  color-scheme: light;
+  /* 底色要比卡片明显深一档，否则白卡片在浅底上浮不起来 */
+  --c-bg: #e8edf0;
+  --c-surface: #ffffff;
+  --c-surface-2: #f3f6f8;
+  --c-border: #d2dae2;
+  --c-border-strong: #b4bfcb;
+  /* 小字（年份、集数、区块说明）在底色 / 卡片上都要 >=4.5:1 */
+  --c-muted: #546070;
+  --c-text-soft: #3b4657;
+  --c-text: #10151c;
+  --c-accent-ink: #0b5c55;
+  --c-accent: #0f766e;
+  --c-on-accent: #ffffff;
+  --c-brand-2: #2563eb;
+  --c-danger: #b91c1c;
+  --c-warm-fill: #e8930c;
+  --c-warm: #6a3d00;
+  --c-cover: linear-gradient(145deg, #dce3ea, #d2dae2);
+  --c-shadow: 0 1px 2px rgb(16 20 28 / 6%), 0 1px 8px rgb(16 20 28 / 4%);
+  --c-on-fill: #1a1408;
+  --c-live: #4ade80;
+  --c-live-ink: #13703a;
+  --c-shadow-lift: 0 14px 28px -14px rgb(16 20 28 / 45%), 0 3px 8px -3px rgb(16 20 28 / 18%);
+  --c-shadow-hero: 0 20px 40px -14px rgb(16 20 28 / 45%), 0 0 0 1px rgb(16 20 28 / 6%);
+}
+
+/* 禁掉橡皮筋回弹 —— 否则滚到顶部继续拖会把 sticky 顶栏一起拉下来 */
+html, body { overscroll-behavior-y: none; }
+
+body {
+  background: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}
+
+/**
+ * 交互状态：
+ *   · 键盘焦点统一一圈 accent（只在 :focus-visible，鼠标点击不出现）
+ *   · 按钮按下下沉 1px
+ *   · 数字等宽：集数、计数在列表里上下对齐
+ */
+:where(a, button, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+:where(button):not(:disabled):active { transform: translateY(1px); }
+body { font-variant-numeric: tabular-nums; }
+
+/**
+ * 这几条写在 @layer 之外：Tailwind v4 的工具类都在 @layer utilities 里，层外的规则优先，
+ * 不用逐个去改各处的 text-[13px]。
+ *   · 双击不放大、点按无系统灰底
+ *   · 系统开了「减少动态效果」时关掉过渡和动画
+ */
+html { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+@media (pointer: coarse) {
+  :where(button, [role='button'], summary, .tap) { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.cover { background: var(--c-cover); }
+/* 卡片：亮色下靠阴影浮起，暗色下靠边框区分 */
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  box-shadow: var(--c-shadow);
+}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* 顶部加载条：切页 / 搜索时让人知道确实在动。见 +layout.svelte 的 navigating */
+@keyframes m-loadbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.loadbar { animation: m-loadbar .9s ease-in-out infinite; }
+
+/**
+ * 当前项：选集、片源、导航……凡是「列表里哪一项是现在这个」都用它。
+ *   左侧 3px accent 竖条 + accent 12% 淡底 + 文字加粗。写在 @layer 之外 -> 压过元素上原有的 bg-* / font-*。
+ * 用法：<a class="… rounded-lg" class:is-current={on} aria-current={on ? 'page' : undefined}>
+ */
+.is-current {
+  background-color: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--c-accent);
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+/* 底部标签栏高度（桌面客户端没有，恒为 0；Toaster / Sheet / Page 读它） */
+:root { --tabbar-h: 0px; }
+/* 顶栏高度（+layout.svelte 的 <header>）。吸顶小节头 / 一屏高的外框都要减它 */
+:root { --hdr-h: 53px; }

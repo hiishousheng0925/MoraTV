@@ -1,0 +1,20 @@
+{
+  "name": "moratv-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MoraTV：本地运行的影视客户端",
+  "author": "MoraTV",
+  "scripts": {
+    "build": "node build.js",
+    "dist": "node build.js --dist",
+    "start": "node build.js --run --skip-vite"
+  },
+  "appDependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.15.3"
+  }
+}
