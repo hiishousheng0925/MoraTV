@@ -215,23 +215,83 @@ export async function trending(type = 'all', page = 1) {
 
 const REGION = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', jp: 'JP', th: 'TH', west: 'US|GB' };
 
+/** 按评分排时的评分人数门槛（太少人评的高分没意义）：港 / 台放低 */
+export const SCORE_MIN_VOTES = 50;
 /**
- * @param {'tv'|'movie'} type
- * @param {{region?: string, page?: number, kind?: 'tv'|'movie'|'variety'|'doc'}} [opts]
- * region：cn/hk/tw/kr/jp/th/west(=US|GB)，也可直接给 ISO 国家码；kind：variety = 综艺（真人秀|脱口秀），doc = 纪录片，
- * tv = 剧集（排除综艺 / 纪录片），movie 不加类型过滤。
- * 一律排除 EXCLUDE_GENRES（综艺要脱口秀，留着 10767）并要求 vote_count ≥ MIN_VOTES；结果再过一遍 recommendable()。
+ * TMDB 不标三级片：情色类关键词（erotic / softcore / erotica / sexploitation / erotic comedy / erotic romance / erotic theater /
+ * erotic vignettes）一律排除，港片浏览「惊悚」里的聊斋艳谭、玉蒲团之类就是靠它挡掉的（2026-10 实测 id）。
  */
-export async function discover(type, { region, page = 1, kind } = {}) {
-  if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
-  const minVotes = minVotesFor(region);
-  const params = { sort_by: 'popularity.desc', page, include_adult: 'false', 'vote_count.gte': minVotes };
+export const EXCLUDE_KEYWORDS = [256466, 155477, 325693, 10053, 302868, 298666, 352503, 155691];
+export const SCORE_MIN_VOTES_LOW = 10;
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * discover 的出站参数（不含 page / api_key）。规则见 discover()。
+ * @param {'tv'|'movie'} type
+ * @param {{region?: string, kind?: string, filter?: {with_genres?: string, with_keywords?: string, with_networks?: string},
+ *   sort?: ''|'new'|'score', range?: [string|null, string|null]|null}} [opts]
+ */
+export function discoverParams(type, { region, kind, filter, sort = '', range = null } = {}) {
+  let minVotes = minVotesFor(region);
+  const hasFilter = !!(filter && (filter.with_genres || filter.with_keywords || filter.with_networks));
+  // 剧集按题材筛：华语剧在 TMDB 上评分人数普遍少（内地谍战剧 ≥20 票的只有 1 部、≥5 票 8 部），门槛降到 MIN_VOTES_LOW
+  if (hasFilter && type === 'tv' && kind !== 'variety' && kind !== 'doc') minVotes = Math.min(minVotes, MIN_VOTES_LOW);
+  if (sort === 'score') minVotes = Math.max(minVotes, minVotes === MIN_VOTES_LOW ? SCORE_MIN_VOTES_LOW : SCORE_MIN_VOTES);
+  const date = type === 'tv' ? 'first_air_date' : 'primary_release_date';
+  const params = {
+    sort_by: sort === 'new' ? `${date}.desc` : sort === 'score' ? 'vote_average.desc' : 'popularity.desc',
+    include_adult: 'false', 'vote_count.gte': minVotes,
+  };
   if (region) { const r = String(region); params.with_origin_country = REGION[r.toLowerCase()] || r.toUpperCase(); }
   const keep = kind === 'variety' && type === 'tv' ? [10767] : [];
   const without = new Set(EXCLUDE_GENRES.filter((g) => !keep.includes(g)));
   if (kind === 'variety' && type === 'tv') params.with_genres = '10764|10767';
   else if (kind === 'doc') params.with_genres = '99';
-  else if (kind === 'tv' && type === 'tv') for (const g of [10764, 10767, 99]) without.add(g);
+  else {
+    if (kind === 'tv' && type === 'tv') for (const g of [10764, 10767, 99]) without.add(g);
+    // 题材 / 电视台只在剧集 / 电影上叠加（综艺 / 纪录片本身就是 with_genres，不混）
+    for (const k of ['with_genres', 'with_keywords', 'with_networks']) if (filter?.[k]) params[k] = String(filter[k]);
+  }
   params.without_genres = [...without].join(',');
-  return mapList(await get(`/discover/${type}`, params, TTL_LIST), type).filter((t) => recommendable(t, { keep, minVotes }));
+  params.without_keywords = EXCLUDE_KEYWORDS.join(',');
+  // 年代；「最新」只看已经开播 / 上映的（TMDB 里有大量未来日期的占位条目）
+  let [gte, lte] = range || [null, null];
+  if (sort === 'new' && (!lte || lte > today())) lte = today();
+  if (gte) params[`${date}.gte`] = gte;
+  if (lte) params[`${date}.lte`] = lte;
+  return { params, keep, minVotes };
+}
+
+/**
+ * @param {'tv'|'movie'} type
+ * @param {{region?: string, page?: number, kind?: 'tv'|'movie'|'variety'|'doc', filter?: object, sort?: ''|'new'|'score', range?: [string|null, string|null]|null}} [opts]
+ * region：cn/hk/tw/kr/jp/th/west(=US|GB)，也可直接给 ISO 国家码；kind：variety = 综艺（真人秀|脱口秀），doc = 纪录片，
+ * tv = 剧集（排除综艺 / 纪录片），movie 不加类型过滤。filter：题材 / 电视台（`$lib/genres.js`），只对剧集 / 电影生效。
+ * sort：'' 热门 / new 最新（日期 ≤ 今天）/ score 评分（评分人数门槛抬高）；range：[起, 止] 日期（年代）。
+ * 一律排除 EXCLUDE_GENRES（综艺要脱口秀，留着 10767）并要求 vote_count ≥ minVotesFor(region)；结果再过一遍 recommendable()。
+ * 返回的数组带 totalPages / totalResults（TMDB 原样，最多 500 页）。
+ */
+export async function discover(type, opts = {}) {
+  if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
+  const { params, keep, minVotes } = discoverParams(type, opts);
+  const j = await get(`/discover/${type}`, { ...params, page: opts.page || 1 }, TTL_LIST);
+  const out = mapList(j, type).filter((t) => recommendable(t, { keep, minVotes }));
+  out.totalPages = Math.min(500, Number(j?.total_pages) || 0);
+  out.totalResults = Number(j?.total_results) || 0;
+  return out;
+}
+
+const TTL_COUNT = 2 * DAY;
+/**
+ * 这组条件下有多少部（discover 的 total_results，只拿第 1 页）。浏览页据此隐藏没内容的题材。
+ * 单独缓存 2 天（键只含参数），失败抛错不入缓存。没 key 返回 0。
+ */
+export async function discoverCount(type, opts = {}) {
+  if (!hasKey() || (type !== 'tv' && type !== 'movie')) return 0;
+  const { params } = discoverParams(type, opts);
+  const q = new URLSearchParams({ ...params, page: '1' }).toString();
+  return cached(`tmdb:count:${type}?${q}`, TTL_COUNT, async () => {
+    const j = await raw(`/discover/${type}`, { ...params, page: 1 });
+    return Number(j?.total_results) || 0;
+  });
 }

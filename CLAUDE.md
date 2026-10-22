@@ -125,3 +125,10 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - 没填 TMDB key 时看的作品 key 是 `cms-<站>-<id>`，填 key 后同一部变成 `tv-/movie-<id>`。表 `key_alias(alias, key, season)`（迁移第 2 步）记「cms key = TMDB key」。
 - 登记点只有一处：`works.js` 的 `linkAliases`，由 `sourcesFor`（详情 / 播放页 / 可用性）和 `rememberSearch`（搜索）在 TMDB 作品的**已通过匹配判定**的片源上调用 `library.registerAlias`。先到先得，不改已有登记；多季剧按条目自己的季号登记（`season` 列，并过去时 cms 记录的季号改成它），认不出季不会进这里（单季 / 电影不传）。
 - `registerAlias` 在事务里把 cms key 的进度 / last_watch / 想看 / 线路偏好并进 TMDB key：同一集留 `updated_at` 较新的，想看留较早的加入时间，线路偏好 TMDB 已有则不动；之后 library 的读写入口（saveProgress / getProgress / favorite / linePref / removeHistory）都先 `resolveKey`，cms 详情 / 播放页 load 里 `resolveKey` 不同就 307 到 TMDB 那份。
+
+## 浏览页（0.1.2 起）
+
+- 筛选全在 URL：`kind`（缺省剧集）`region` `g`（题材）`net=tvb` `sort=new|score` `dec=2020s|2010s|2000s|old` `p` `src`（没 key 时翻页固定的站）。解析 / 校验在 `server/browse.js` 的 `parseQuery`，不适用的值直接丢（华语剧没有「科幻」、TVB 只在剧集 · 香港、综艺 / 纪录片不叠题材）。
+- 题材表 `src/lib/genres.js`（前后端共用）：华语题材靠 TMDB keyword（id 是实测的，别凭名字猜），西式题材用 genre，剧集 / 电影 genre 不同的分开写；TVB = network 48，和题材叠加（TVB × 犯罪 = 警匪）。
+- 有 key：`tmdb.discover(type, {region, kind, filter, sort, range, page})`，出站参数在 `discoverParams`（可单测）。剧集带题材时评分人数门槛降到 `MIN_VOTES_LOW`（内地谍战 ≥20 票只有 1 部）；按评分排抬到 `SCORE_MIN_VOTES`（港台 / 带题材的剧集用 `_LOW`）；「最新」只看日期 ≤ 今天；`EXCLUDE_KEYWORDS`（情色关键词）一律 `without_keywords`。题材 chip 只显示有内容的：`genreCounts` 每个题材一次 `discoverCount`（total_results，全局并发 4），整组缓存 2 天（有失败的只 10 分钟），流式给页面，不挡结果。
+- 没 key：资源站分类。`pickCategories`：地区正好对上一个类目就 `t=<id>`；「全部」取这个形态的全部末级类目（大类 `t=` 不含子类目，是空的），每个类目每页出 20 的约数条（`perCategory`，合起来 ≤48）按更新时间合并，翻页不漏不重；没有对应类目（按地区看电影、港台综艺）取地区不明的类目按 `vod_area` 本地筛。类目页缓存 30 分钟、分类树 1 天。没有题材 / 排序 / 年代。

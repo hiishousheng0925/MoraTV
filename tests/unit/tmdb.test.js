@@ -333,3 +333,54 @@ test('图片代理：白名单、落盘缓存、第二次不回源、超大拒�
   assert.equal(existsSync(join(home, 'cache', 'img', 'w342', 'big.jpg')), false);
   assert.equal((await getImage('w342', 'gone.jpg')).status, 404);
 });
+
+test('discoverParams：题材 / 电视台叠在剧集 / 电影上，综艺 / 纪录片不叠', () => {
+  const p = (type, o) => tmdb.discoverParams(type, o).params;
+  const a = p('tv', { region: 'cn', kind: 'tv', filter: { with_keywords: '4379' } });
+  assert.equal(a.with_keywords, '4379');
+  assert.equal(a['vote_count.gte'], tmdb.MIN_VOTES_LOW, '剧集按题材筛：评分人数门槛放低');
+  assert.equal(a.without_keywords, tmdb.EXCLUDE_KEYWORDS.join(','), '情色关键词一律排除');
+  assert.equal(p('tv', { region: 'cn', kind: 'tv' })['vote_count.gte'], tmdb.MIN_VOTES);
+  assert.equal(p('movie', { region: 'cn', kind: 'movie', filter: { with_genres: '28' } })['vote_count.gte'], tmdb.MIN_VOTES, '电影不放低');
+  assert.equal(a.without_genres, '16,10762,10763,10767,10764,99');
+  const b = p('tv', { region: 'hk', kind: 'tv', filter: { with_genres: '80', with_networks: '48' } });
+  assert.equal(b.with_genres, '80');
+  assert.equal(b.with_networks, '48');
+  const c = p('movie', { kind: 'movie', filter: { with_genres: '53|27' } });
+  assert.equal(c.with_genres, '53|27');
+  assert.equal(c.without_genres, '16,10762,10763,10767', '动画照样排除');
+  const v = p('tv', { kind: 'variety', filter: { with_genres: '18', with_keywords: '1' } });
+  assert.equal(v.with_genres, '10764|10767');
+  assert.equal(v.with_keywords, undefined);
+});
+
+test('discoverParams：排序 / 年代', () => {
+  const p = (type, o) => tmdb.discoverParams(type, o).params;
+  const today = new Date().toISOString().slice(0, 10);
+  const n = p('tv', { region: 'kr', kind: 'tv', sort: 'new' });
+  assert.equal(n.sort_by, 'first_air_date.desc');
+  assert.equal(n['first_air_date.lte'], today, '最新只看已经开播的');
+  const m = p('movie', { kind: 'movie', sort: 'new', range: ['2010-01-01', '2019-12-31'] });
+  assert.equal(m.sort_by, 'primary_release_date.desc');
+  assert.equal(m['primary_release_date.gte'], '2010-01-01');
+  assert.equal(m['primary_release_date.lte'], '2019-12-31');
+  const s = p('tv', { region: 'cn', kind: 'tv', sort: 'score' });
+  assert.equal(s.sort_by, 'vote_average.desc');
+  assert.equal(s['vote_count.gte'], tmdb.SCORE_MIN_VOTES);
+  assert.equal(p('tv', { region: 'hk', kind: 'tv', sort: 'score' })['vote_count.gte'], tmdb.SCORE_MIN_VOTES_LOW);
+  assert.equal(p('tv', { region: 'cn', kind: 'tv', sort: 'score', filter: { with_keywords: '1' } })['vote_count.gte'], tmdb.SCORE_MIN_VOTES_LOW);
+  const o = p('tv', { kind: 'tv', range: [null, '1999-12-31'] });
+  assert.equal(o.sort_by, 'popularity.desc');
+  assert.equal(o['first_air_date.gte'], undefined);
+  assert.equal(o['first_air_date.lte'], '1999-12-31');
+});
+
+test('discover 带 totalPages；discoverCount 取 total_results 并缓存', async () => {
+  const d = await tmdb.discover('tv', { region: 'cn', kind: 'tv', page: 3 });
+  assert.equal(typeof d.totalPages, 'number');
+  const before = hits.length;
+  assert.equal(await tmdb.discoverCount('movie', { kind: 'movie', filter: { with_genres: '777' } }), 0);
+  assert.equal(await tmdb.discoverCount('movie', { kind: 'movie', filter: { with_genres: '777' } }), 0);
+  assert.equal(hits.length - before, 1, '第二次走缓存');
+  assert.equal(hits.at(-1).q.with_genres, '777');
+});

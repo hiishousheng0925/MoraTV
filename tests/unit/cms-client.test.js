@@ -23,7 +23,7 @@ before(async () => {
     const p = u.pathname;
     if (p === '/ok/api.php/provide/vod') {
       res.setHeader('content-type', 'application/json');
-      if (u.searchParams.get('ac') === 'list') return res.end(JSON.stringify({ code: 1, total: 1, class: [{ type_id: 13, type_name: '国产剧' }], list: [] }));
+      if (u.searchParams.get('ac') === 'list') return res.end(JSON.stringify({ code: 1, total: 1, class: [{ type_id: 13, type_name: '国产剧', type_pid: 2 }, { type_id: 2, type_name: '连续剧' }], list: [] }));
       if (u.searchParams.get('ids')) return res.end(JSON.stringify({ code: 1, list: [vod] }));
       return res.end(JSON.stringify({ code: 1, total: 99, list: [vod] }));
     }
@@ -55,7 +55,7 @@ test('searchSite: HTML / code:0 / 404 / 超时 都返回 []', async () => {
 test('detailSite / listCategories', async () => {
   const s = { id: 2, api: `${base}/ok/api.php/provide/vod` };
   assert.equal((await detailSite(s, [1, 2])).length, 1);
-  assert.deepEqual(await listCategories(s), [{ id: 13, name: '国产剧' }]);
+  assert.deepEqual(await listCategories(s), [{ id: 13, name: '国产剧', pid: 2 }, { id: 2, name: '连续剧', pid: null }]);
 });
 
 test('首次 listSites 写入内置站点', () => {

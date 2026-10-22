@@ -51,9 +51,9 @@ export async function detailSite(site, ids, { timeoutMs = 8000 } = {}) {
   return j.list.map((r) => normalizeVod(r, site.id)).filter((v) => v.name);
 }
 
-/** 分类树：[{id, name}] */
+/** 分类树：[{id, name, pid}]（pid：父类目 id，站点没给为 null） */
 export async function listCategories(site, { timeoutMs = 8000 } = {}) {
   const j = await cmsGet(site, { ac: 'list' }, timeoutMs);
   if (!j || !Array.isArray(j.class)) return [];
-  return j.class.map((c) => ({ id: Number(c.type_id), name: String(c.type_name) }));
+  return j.class.map((c) => ({ id: Number(c.type_id), name: String(c.type_name), pid: c.type_pid != null && c.type_pid !== '' ? Number(c.type_pid) : null }));
 }
