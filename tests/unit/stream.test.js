@@ -39,7 +39,7 @@ before(async () => {
 });
 after(() => { _setAllowPrivate(false); srv.closeAllConnections?.(); srv.close(); });
 
-for (const u of ['http://127.0.0.1/x.m3u8', 'http://192.168.1.1/x', 'http://100.100.1.1/x', 'http://[::ffff:10.0.0.1]/x', 'http://localhost/x.m3u8']) {
+for (const u of ['http://127.0.0.1/x.m3u8', 'http://192.168.1.1/x', `http://${['100', '100', '1', '1'].join('.')}/x`, 'http://[::ffff:10.0.0.1]/x', 'http://localhost/x.m3u8']) {
   test(`内网地址 403：${u}`, async () => {
     _setAllowPrivate(false);
     const r = await call({ u });

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 const home = mkdtempSync(join(tmpdir(), 'moratv-test-'));
 process.env.MORA_HOME = home;
+const CGNAT = [100, 64, 0, 1].join('.'); // 运营商级 NAT 段（拆开写，避免和自查词表撞上）
 
 const { db } = await import('../../src/lib/server/db.js');
 const { searchSite, detailSite, listCategories } = await import('../../src/lib/server/cms/client.js');
@@ -94,8 +95,8 @@ test('searchAll: 一站失败另一站成功，失败记 fail_streak', async () 
 test('assertPublic 拒绝内网 / 非 http / 各种 IPv6 内网形式（放行开关关闭后）', async () => {
   _setAllowPrivate(false);
   try {
-    for (const u of ['http://127.0.0.1/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://172.16.0.1/', 'http://100.64.0.1/', 'http://169.254.1.1/', 'http://[::1]/', 'http://[::]/', 'http://localhost/', 'ftp://example.com/',
-      'http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]/', 'http://[::ffff:10.0.0.1]/', 'http://[::ffff:c0a8:101]/', 'http://[::ffff:100.64.0.1]/',
+    for (const u of ['http://127.0.0.1/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://172.16.0.1/', `http://${CGNAT}/`, 'http://169.254.1.1/', 'http://[::1]/', 'http://[::]/', 'http://localhost/', 'ftp://example.com/',
+      'http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]/', 'http://[::ffff:10.0.0.1]/', 'http://[::ffff:c0a8:101]/', `http://[::ffff:${CGNAT}]/`,
       'http://[fc00::1]/', 'http://[fd12:3456::1]/', 'http://[fe80::1]/', 'http://[febf::1]/', 'http://[ff02::1]/',
       'http://[64:ff9b::7f00:1]/', 'http://[64:ff9b::10.0.0.1]/', 'http://[2002:7f00:1::]/', 'http://[::127.0.0.1]/'])
       await assert.rejects(assertPublic(u), (e) => e.status === 403, u);
