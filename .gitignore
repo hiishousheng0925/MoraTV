@@ -1,0 +1,9 @@
+.superpowers/
+node_modules/
+.svelte-kit/
+build/
+build.dev/
+desktop/.stage/
+desktop/dist/
+desktop/node_modules/
+*.db
