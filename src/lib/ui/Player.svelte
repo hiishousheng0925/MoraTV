@@ -38,6 +38,8 @@
   import ArrowLeft from 'phosphor-svelte/lib/ArrowLeft';
   import { untrack } from 'svelte';
   import { media } from '$lib/media.svelte.js';
+  import { toast } from './toast.svelte.js';
+  import Toaster from './Toaster.svelte';
   import { store, fmt } from './playerUtil.js';
 
   let { src, title = '', epLabel = '', liked = false, onlike, onshot, onback = null, immersive = false,
@@ -147,9 +149,7 @@
    * 截当前画面（只截画面，不截控制条）：把 video 当前帧按原分辨率画到离屏 canvas。
    * 跨站且不带 CORS 的视频画上去会污染 canvas、导不出来，返回 null，由调用方决定怎么办
    */
-  let shooting = $state(false), note = $state(''), flash = $state(false);
-  /** 播放器里自己的提示：全屏时右下角的全局 toast 被全屏层盖住看不见 */
-  const say = (t) => { note = t; setTimeout(() => { if (note === t) note = ''; }, 2200); };
+  let shooting = $state(false), flash = $state(false);
   async function shoot() {
     if (!video || shooting || !onshot) return;
     shooting = true;
@@ -164,7 +164,7 @@
       } catch { blob = null; }   // SecurityError：canvas 被跨站视频污染
       flash = true; setTimeout(() => (flash = false), 180);
       const r = await onshot(blob, t);
-      say(r ? '截图已保存' : '截图没保存');
+      if (r) toast.ok('截图已保存'); else toast.error('截图没保存');
     } finally { shooting = false; }
   }
 
@@ -227,9 +227,8 @@
     </div>
   </div>
   {#if flash}<div class="pointer-events-none absolute inset-0 bg-white/40"></div>{/if}
-  {#if note}
-    <div class="pointer-events-none absolute right-4 top-14 rounded-lg bg-black/75 px-3 py-1.5 text-[13px] text-white">{note}</div>
-  {/if}
+  <!-- 全屏时只有全屏元素内的内容可见，根布局的 Toaster 被盖住：全屏期间在播放器里再挂一个，toast 仍是唯一的反馈通道 -->
+  {#if full}<Toaster />{/if}
   {#if countdown}
     <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-white">
       <div class="text-sm">{countdown} 秒后播放下一集</div>

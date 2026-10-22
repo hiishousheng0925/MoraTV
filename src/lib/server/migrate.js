@@ -9,7 +9,11 @@ import { readFileSync } from 'node:fs';
 
 async function loadSchema() {
   try { return (await import('./schema.sql?raw')).default; }
-  catch { return readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'); }
+  catch (e) {
+    // 只吞「node 直接跑时 ?raw 解析不了」这一种；其它错误（schema.sql 里的语法问题、构建产物损坏）照常抛出
+    if (e?.code !== 'ERR_MODULE_NOT_FOUND' && e?.code !== 'ERR_UNKNOWN_FILE_EXTENSION') throw e;
+    return readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
+  }
 }
 
 const SCHEMA = await loadSchema();
