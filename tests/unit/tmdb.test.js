@@ -67,10 +67,44 @@ before(async () => {
         ] },
       });
     }
+    if (p === '/3/tv/3') {
+      return json(res, {
+        id: 3, name: 'The Terminal List', original_name: 'The Terminal List', first_air_date: '2022-07-01', origin_country: ['US'], overview: 'x',
+        translations: { translations: [
+          { iso_639_1: 'en', iso_3166_1: 'US', data: { name: '', overview: 'x' } },
+          { iso_639_1: 'zh', iso_3166_1: 'HK', data: { name: '末日名單', overview: '' } },
+          { iso_639_1: 'zh', iso_3166_1: 'TW', data: { name: '終極名單', overview: '' } },
+          { iso_639_1: 'zh', iso_3166_1: 'CN', data: { name: '', overview: '' } },
+        ] },
+      });
+    }
+    if (p === '/3/tv/4') {
+      return json(res, {
+        id: 4, name: '唐朝诡事录', original_name: '唐朝诡事录', original_language: 'zh', first_air_date: '2022-09-27', origin_country: ['CN'], overview: 'x',
+        translations: { translations: [
+          { iso_639_1: 'zh', iso_3166_1: 'CN', data: { name: '', overview: '' } },
+          { iso_639_1: 'zh', iso_3166_1: 'TW', data: { name: '唐朝詭事錄', overview: '' } },
+        ] },
+      });
+    }
     if (p === '/3/tv/404') return json(res, {}, 404);
+    if (p === '/3/discover/tv' && u.searchParams.get('page') === '3') {
+      return json(res, { results: [
+        { id: 81, name: '正剧', genre_ids: [18], vote_count: 30 },
+        { id: 82, name: '冷门', genre_ids: [18], vote_count: 3 },
+        { id: 83, name: '国漫', genre_ids: [16, 18], vote_count: 300 },
+      ] });
+    }
+    if (p === '/3/trending/all/week' && u.searchParams.get('page') === '2') {
+      return json(res, { results: [
+        { media_type: 'tv', id: 91, name: '药屋', genre_ids: [16, 18], vote_count: 900 },
+        { media_type: 'movie', id: 92, title: '新片', genre_ids: [28], vote_count: 2 },
+        { media_type: 'movie', id: 93, title: '热片', genre_ids: [28], vote_count: 200 },
+      ] });
+    }
     if (p === '/3/trending/tv/week') return json(res, { results: [{ id: 5, name: 'T', first_air_date: '2024-02-02', origin_country: ['HK'] }] });
     if (p === '/3/trending/all/week') return json(res, { results: [{ media_type: 'tv', id: 5, name: 'T' }, { media_type: 'person', id: 6 }] });
-    if (p === '/3/discover/tv') return json(res, { results: [{ id: 8, name: 'D', origin_country: ['HK'] }] });
+    if (p === '/3/discover/tv') return json(res, { results: [{ id: 8, name: 'D', origin_country: ['HK'], genre_ids: [18], vote_count: 50 }] });
     if (p === '/3/person/3') {
       return json(res, { name: 'P3', combined_credits: { cast: [{ media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'movie', id: 2, title: 'b', popularity: 9 }] } });
     }
@@ -114,7 +148,7 @@ test('searchMulti：字段映射、过滤 person、第二次走缓存', async ()
   setSetting('tmdb_key', 'k-test');
   assert.equal(tmdb.hasKey(), true);
   const r = await tmdb.searchMulti('繁花');
-  assert.deepEqual(r[0], { type: 'tv', id: 106841, name: '繁花', originalName: '繁花', year: 2023, region: 'CN', poster: '/a.jpg', overview: '上海', popularity: 50.5, voteAverage: 8.1 });
+  assert.deepEqual(r[0], { type: 'tv', id: 106841, name: '繁花', originalName: '繁花', year: 2023, region: 'CN', poster: '/a.jpg', overview: '上海', popularity: 50.5, voteAverage: 8.1, voteCount: 0, genreIds: [] });
   assert.equal(r.length, 2);
   assert.equal(r[1].type, 'movie');
   assert.equal(r[1].name, '花样年华');
@@ -193,16 +227,47 @@ test('discover：kind / region 映射到出站查询参数', async () => {
   await tmdb.discover('tv', { region: 'west', kind: 'variety' });
   assert.equal(last().with_origin_country, 'US|GB');
   assert.equal(last().with_genres, '10764|10767');
+  assert.equal(last().without_genres, '16,10762,10763'); // 综艺要脱口秀
   await tmdb.discover('tv', { region: 'kr', kind: 'doc' });
   assert.equal(last().with_origin_country, 'KR');
   assert.equal(last().with_genres, '99');
+  assert.equal(last().without_genres, '16,10762,10763,10767');
   await tmdb.discover('tv', { region: 'th', kind: 'tv' });
   assert.equal(last().with_origin_country, 'TH');
-  assert.equal(last().without_genres, '10764,10767,99');
+  assert.equal(last().without_genres, '16,10762,10763,10767,10764,99');
+  assert.equal(last()['vote_count.gte'], '20');
   assert.equal(last().with_genres, undefined);
   await tmdb.discover('movie', { region: 'jp', kind: 'movie' });
   assert.equal(last().with_genres, undefined);
-  assert.equal(last().without_genres, undefined);
+  assert.equal(last().without_genres, '16,10762,10763,10767');
+  assert.equal(last()['vote_count.gte'], '20');
+});
+
+test('recommendable：排除动画 / 少儿 / 新闻 / 脱口秀，评分人数 ≥ 20；keep 放行指定类型', () => {
+  assert.deepEqual(tmdb.EXCLUDE_GENRES, [16, 10762, 10763, 10767]);
+  assert.equal(tmdb.MIN_VOTES, 20);
+  const ok = (genreIds, voteCount, opts) => tmdb.recommendable({ genreIds, voteCount }, opts);
+  assert.equal(ok([18, 80], 20), true);
+  assert.equal(ok([18], 19), false);
+  assert.equal(ok([], undefined), false);
+  for (const g of [16, 10762, 10763, 10767]) assert.equal(ok([18, g], 500), false, String(g));
+  assert.equal(ok([10764, 10767], 50, { keep: [10767] }), true);
+  assert.equal(ok([16, 10767], 50, { keep: [10767] }), false);
+});
+
+test('discover / trending：结果按推荐规则过滤；trending 原样返回、带页码', async () => {
+  const d = await tmdb.discover('tv', { region: 'cn', kind: 'tv', page: 3 });
+  assert.deepEqual(d.map((x) => x.id), [81]);
+  const t = await tmdb.trending('all', 2);
+  assert.equal(hits.findLast((h) => h.path === '/3/trending/all/week').q.page, '2');
+  assert.deepEqual(t.map((x) => [x.id, tmdb.recommendable(x)]), [[91, false], [92, false], [93, true]]);
+});
+
+test('details：显示名 zh-CN 译名优先，没有就用 zh-TW / HK，再没有用原名', async () => {
+  assert.equal((await tmdb.details('tv', 2)).name, '弱小英雄');
+  assert.equal((await tmdb.details('tv', 3)).name, '終極名單');
+  assert.equal((await tmdb.details('tv', 1)).name, '无简介');
+  assert.equal((await tmdb.details('tv', 4)).name, '唐朝诡事录', '华语原作：简中译名空时用原名，不用繁中译名');
 });
 
 test('details：404 负缓存只留短 TTL', async () => {

@@ -58,7 +58,27 @@ export function mapItem(r, forceType) {
     overview: r.overview || '',
     popularity: r.popularity ?? 0,
     voteAverage: r.vote_average ?? 0,
+    voteCount: r.vote_count ?? 0,
+    genreIds: r.genre_ids || (r.genres || []).map((g) => g.id).filter((g) => g != null),
   };
+}
+
+/**
+ * 推荐 / 浏览不展示的 TMDB 类型：动画 16（动漫交给 MoraAnime）、少儿 10762、新闻 10763、脱口秀 10767。
+ * 和 MIN_VOTES 一起是推荐 / 浏览候选的唯一规则：discover 在请求里带上（without_genres / vote_count.gte），
+ * trending 不支持这些参数，拉回来用 recommendable() 本地按同规则过滤。
+ */
+export const EXCLUDE_GENRES = [16, 10762, 10763, 10767];
+export const MIN_VOTES = 20;
+
+/**
+ * 能不能进推荐 / 浏览：没有被排除的类型、评分人数够（太冷门 / 还没上映的片资源站基本没有）。
+ * @param {{genreIds?: number[], voteCount?: number}} t mapItem 的结果
+ * @param {{keep?: number[]}} [opts] keep：这次明确要的类型不排除（浏览「综艺」要脱口秀）
+ */
+export function recommendable(t, { keep = [] } = {}) {
+  if ((t.genreIds || []).some((g) => EXCLUDE_GENRES.includes(g) && !keep.includes(g))) return false;
+  return (t.voteCount ?? 0) >= MIN_VOTES;
 }
 
 const mapList = (j, type) => (j?.results || [])
@@ -122,6 +142,8 @@ export async function personCredits(id) {
 
 const ZH_ORDER = ['CN', 'TW', 'HK', 'SG'];
 const zhRank = (c) => { const i = ZH_ORDER.indexOf(c); return i < 0 ? ZH_ORDER.length : i; };
+/** 已按 ZH_ORDER 排好的 zh translations 里第一个非空译名 */
+const zhName = (zh) => zh.map((t) => String(t.data?.name || t.data?.title || '').trim()).find(Boolean) || '';
 
 /** @param {'tv'|'movie'} type */
 export async function details(type, id) {
@@ -141,8 +163,13 @@ export async function details(type, id) {
     }
   }
   const alts = d.alternative_titles?.titles || d.alternative_titles?.results || [];
+  const base = mapItem({ ...d, origin_country: d.origin_country?.length ? d.origin_country : d.production_countries?.map((c) => c.iso_3166_1) }, type);
   return {
-    ...mapItem({ ...d, origin_country: d.origin_country?.length ? d.origin_country : d.production_countries?.map((c) => c.iso_3166_1) }, type),
+    ...base,
+    // 显示名：zh-CN 译名 → zh-TW / HK / SG 译名 → zh-CN 请求回来的名字（TMDB 没有简中时就是原名）。
+    // 华语原作（original_language zh / cn）的简中译名常是空的，原名本身就是中文，排在繁中译名前面。
+    name: zhName(zh.filter((t) => t.iso_3166_1 === 'CN'))
+      || (d.original_language === 'zh' || d.original_language === 'cn' ? base.name : '') || zhName(zh) || base.name,
     overview,
     tagline: d.tagline || '',
     genres: (d.genres || []).map((g) => g.name),
@@ -172,11 +199,11 @@ export async function season(id, n) {
   };
 }
 
-/** 周榜。@param {'tv'|'movie'|'all'} [type] */
-export async function trending(type = 'all') {
+/** 周榜（原样，不过滤；进推荐前用 recommendable() 过滤）。@param {'tv'|'movie'|'all'} [type] */
+export async function trending(type = 'all', page = 1) {
   if (!hasKey()) return [];
   const t = type === 'tv' || type === 'movie' ? type : 'all';
-  const j = await get(`/trending/${t}/week`, {}, TTL_LIST);
+  const j = await get(`/trending/${t}/week`, page > 1 ? { page } : {}, TTL_LIST);
   return mapList(j, t === 'all' ? undefined : t);
 }
 
@@ -187,13 +214,17 @@ const REGION = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', jp: 'JP', th: 'TH', wes
  * @param {{region?: string, page?: number, kind?: 'tv'|'movie'|'variety'|'doc'}} [opts]
  * region：cn/hk/tw/kr/jp/th/west(=US|GB)，也可直接给 ISO 国家码；kind：variety = 综艺（真人秀|脱口秀），doc = 纪录片，
  * tv = 剧集（排除综艺 / 纪录片），movie 不加类型过滤。
+ * 一律排除 EXCLUDE_GENRES（综艺要脱口秀，留着 10767）并要求 vote_count ≥ MIN_VOTES；结果再过一遍 recommendable()。
  */
 export async function discover(type, { region, page = 1, kind } = {}) {
   if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
-  const params = { sort_by: 'popularity.desc', page, include_adult: 'false' };
+  const params = { sort_by: 'popularity.desc', page, include_adult: 'false', 'vote_count.gte': MIN_VOTES };
   if (region) { const r = String(region); params.with_origin_country = REGION[r.toLowerCase()] || r.toUpperCase(); }
+  const keep = kind === 'variety' && type === 'tv' ? [10767] : [];
+  const without = new Set(EXCLUDE_GENRES.filter((g) => !keep.includes(g)));
   if (kind === 'variety' && type === 'tv') params.with_genres = '10764|10767';
   else if (kind === 'doc') params.with_genres = '99';
-  else if (kind === 'tv' && type === 'tv') params.without_genres = '10764,10767,99';
-  return mapList(await get(`/discover/${type}`, params, TTL_LIST), type);
+  else if (kind === 'tv' && type === 'tv') for (const g of [10764, 10767, 99]) without.add(g);
+  params.without_genres = [...without].join(',');
+  return mapList(await get(`/discover/${type}`, params, TTL_LIST), type).filter((t) => recommendable(t, { keep }));
 }

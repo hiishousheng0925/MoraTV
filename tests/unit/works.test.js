@@ -73,6 +73,71 @@ test('搜索说有 → 详情也有：rememberSearch 写进片源缓存，分季
   assert.equal(calls.find, 3, "旧判定 1 次 + 两个季各查 1 次");
 });
 
+/** 推荐预查的假依赖：has 里的 key 有片源；down=true 时所有站都没回应 */
+function setupRec({ has = [], down = false, names = {}, delay = 0 } = {}) {
+  const calls = { find: [] };
+  works._setDeps({
+    getWork: async (key) => ({ key, type: 'tv', name: names[key] || `详情名${key}`, poster: `/p-${key}.jpg`, seasons: [] }),
+    listSites: () => [{ id: 1, name: '站A', latency_ms: 120 }],
+    findSources: async (w) => { calls.find.push(w.key); if (delay) await new Promise((r) => setTimeout(r, delay)); return down ? list([], false) : list(has.includes(w.key) ? [vod] : [], true); },
+  });
+  return calls;
+}
+const cand = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: `tv-${prefix}${i}`, name: `榜单名${i}`, poster: null, available: null }));
+const keysOf = (l) => l && l.map((t) => t.key);
+
+test('recommendRows：只留有片源的、名字换成详情名、凑满 need 就停、跨排去重', async () => {
+  const a = cand(100, 12);
+  const b = [a[1], a[3], ...cand(200, 8)];
+  const has = [...a.filter((_, i) => i % 2), ...b].map((t) => t.key);
+  const calls = setupRec({ has });
+  const { rows, sitesDown } = works.recommendRows([{ id: 'a', items: Promise.resolve(a) }, { id: 'b', items: Promise.resolve(b) }], { need: 3, min: 2 });
+  const ra = await rows[0].items;
+  assert.deepEqual(keysOf(ra), ['tv-1001', 'tv-1003', 'tv-1005']);
+  assert.equal(ra[0].name, '详情名tv-1001');
+  assert.equal(ra[0].poster, '/p-tv-1001.jpg');
+  assert.equal(ra[0].available, true);
+  const rb = await rows[1].items;
+  assert.equal(rb.some((t) => ra.some((x) => x.key === t.key)), false, '前一排出现过的不再出现');
+  assert.equal(rb.length, 3);
+  assert.equal(await sitesDown, false);
+  assert.ok(calls.find.length < a.length + b.length, '凑满就不再往后查（只多查一窗预取）');
+});
+
+test('recommendRows：前面的排先查（后面的排的预查排在后面）', async () => {
+  const a = cand(500, 8);
+  const b = cand(510, 16);
+  const calls = setupRec({ has: [...a, ...b].map((t) => t.key), delay: 20 });
+  // 后一排的候选先到：它先占满空位（6 个），但排队中的让前一排插到前面
+  const late = new Promise((r) => setTimeout(() => r(a), 5));
+  const { rows } = works.recommendRows([{ id: 'a', items: late }, { id: 'b', items: Promise.resolve(b) }], { need: 16, min: 2 });
+  await rows[1].items;
+  assert.deepEqual(calls.find.slice(0, 6), keysOf(b.slice(0, 6)));
+  assert.deepEqual(calls.find.slice(6, 14).sort(), keysOf(a).sort());
+});
+
+test('recommendRows：凑不满 min 张整排为 []；候选加载失败为 null', async () => {
+  setupRec({ has: ['tv-3001'] });
+  const { rows } = works.recommendRows([
+    { id: 'x', items: Promise.resolve(cand(300, 8)) },
+    { id: 'y', items: Promise.reject(new Error('TMDB 挂了')) },
+  ], { need: 4, min: 2 });
+  assert.deepEqual(await rows[0].items, []);
+  assert.equal(await rows[1].items, null);
+});
+
+test('recommendRows：资源站全都没回应 → 推荐不过滤、sitesDown=true、不写负缓存', async () => {
+  setupRec({ down: true });
+  const a = cand(400, 6);
+  const { rows, sitesDown } = works.recommendRows([{ id: 'a', items: Promise.resolve(a) }, { id: 'b', items: Promise.resolve([a[0], ...cand(410, 3)]) }], { need: 4, min: 2 });
+  const ra = await rows[0].items;
+  assert.deepEqual(keysOf(ra), keysOf(a.slice(0, 4)));
+  assert.equal(ra.every((t) => t.available === null), true, '不判无');
+  assert.deepEqual(keysOf(await rows[1].items), ['tv-4100', 'tv-4101', 'tv-4102'], '仍跨排去重');
+  assert.equal(await sitesDown, true);
+  assert.equal(db().prepare("SELECT COUNT(*) c FROM cache WHERE k LIKE 'avail%tv-40%' OR k LIKE 'src%tv-40%'").get().c, 0);
+});
+
 test('rememberSearch 只记通过片源判定的条目（同名同年的内地剧不进韩剧的片源缓存）', async () => {
   setup([list([], true)]);
   const kr = { ...vod, vodId: '71', name: '黑暗荣耀', year: 2022, area: '韩国', category: { kind: 'tv', region: 'kr' }, actors: ['宋慧乔'] };

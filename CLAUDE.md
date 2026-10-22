@@ -106,3 +106,9 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - 回归用例：`tests/fixtures/match-regression.json`（条目池取自真实资源站），改匹配逻辑先跑它。
 - `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
 - 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。
+
+## 推荐 / 浏览候选（0.1.2 起）
+
+- **规则只有一处**：`tmdb.js` 的 `EXCLUDE_GENRES`（16 动画 / 10762 少儿 / 10763 新闻 / 10767 脱口秀）+ `MIN_VOTES`（20）+ `recommendable(t, {keep})`。`discover()` 在请求里带 `without_genres` / `vote_count.gte` 并再过一遍 `recommendable`（综艺 `kind:'variety'` 用 `keep:[10767]` 留脱口秀）；`trending()` 不支持这些参数，**原样返回**，调用方自己 `.filter((t) => tmdb.recommendable(t))`。浏览页 / 其他列表要复用这套，别另写类型表。`mapItem` 带出 `genreIds` / `voteCount` 就是为了它。
+- `tmdb.details().name` 是显示名：zh-CN 译名 → 华语原作（original_language zh / cn）用原名 → zh-TW / HK / SG 译名 → 原名。
+- 首页推荐排：`works.js` 的 `recommendRows(rows, {need, min})`。每排拉 2 页候选，按排顺序挑：跨排去重、预查 `availability`（全局并发 6，带优先级：前面的排先查）、没片源的直接移除、名字 / 海报换成详情的，凑不满 `min`（6）张整排返回 `[]`。每排各自一个 promise，页面逐排流式渲染。任何一次预查抛 `NoSiteAnswered` → 之后不再预查、各排按 TMDB 原样返回（`available: null`），`sitesDown` 解析为 true，页面 toast 一次「资源站暂时连不上」；不写负缓存（availability 本身就不缓存这种结果）。

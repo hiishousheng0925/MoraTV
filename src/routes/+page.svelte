@@ -1,7 +1,7 @@
 <script>
   /**
    * 首页：大搜索框（自动聚焦）→ 继续观看 → 想看 → 推荐若干排（TMDB，需要 key）→ 最近更新（资源站，不需要 key）。都是流式加载。
-   * TMDB 推荐卡片进入视口后懒查片源可用性，没片源的变灰加角标；最近更新的卡片本身就来自资源站，不用查。
+   * TMDB 推荐排由服务端预查过片源（没片源的已移除、跨排去重）；最近更新的卡片本身就来自资源站，不用查。
    */
   import Page from '$lib/ui/Page.svelte';
   import Section from '$lib/ui/Section.svelte';
@@ -9,7 +9,6 @@
   import SearchForm from '$lib/ui/SearchForm.svelte';
   import { toast } from '$lib/ui/toast.svelte.js';
   import { toCard, clock, epText } from '$lib/work.js';
-  import { avail, watchAvail } from '$lib/avail.svelte.js';
 
   let { data } = $props();
 
@@ -20,13 +19,23 @@
   })));
   const favs = $derived(data.favs.map((f) => toCard({ key: f.key, ...f.title })));
 
-  /** 推荐排的卡片：可用性查到 false 时变灰；最近更新的带更新备注（「更新至第 N 集」） */
-  const cards = (items) => items.map((w) => toCard({ ...w, available: w.available ?? avail.of(w.key) }, w.sub ? { sub: w.sub } : {}));
+  /** 最近更新的卡片带更新备注（「更新至第 N 集」） */
+  const cards = (items) => items.map((w) => toCard(w, w.sub ? { sub: w.sub } : {}));
 
-  // 推荐排有失败的：整个页面生命周期里只 toast 一次（invalidate 后 data 变了也不再弹）
+  // 整个页面生命周期里各只 toast 一次（invalidate 后 data 变了也不再弹）：
+  // TMDB 推荐排失败 →「推荐加载失败」；资源站全都没回应（推荐排按 TMDB 原样显示、不判无）或最近更新拉不到 →「资源站暂时连不上」
   let warned = false;
+  let downWarned = false;
+  const warnSites = () => { if (!downWarned) { downWarned = true; toast.error('资源站暂时连不上'); } };
   $effect(() => {
-    for (const r of data.rows) Promise.resolve(r.items).then((v) => { if (v === null && !warned) { warned = true; toast.error('推荐加载失败'); } });
+    for (const r of data.rows) {
+      Promise.resolve(r.items).then((v) => {
+        if (v !== null) return;
+        if (r.id.startsWith('new-')) warnSites();
+        else if (!warned) { warned = true; toast.error('推荐加载失败'); }
+      });
+    }
+    Promise.resolve(data.sitesDown).then((d) => { if (d) warnSites(); });
   });
 </script>
 
@@ -57,7 +66,7 @@
     {:then items}
       {#if items?.length}
         <Section title={r.title}>
-          <div use:watchAvail={items.map((w) => w.key)}><CardGrid items={cards(items)} variant="row" /></div>
+          <CardGrid items={cards(items)} variant="row" />
         </Section>
       {/if}
     {/await}

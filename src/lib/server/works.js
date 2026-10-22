@@ -163,6 +163,95 @@ export async function availability(key) {
   return !!r?.ok;
 }
 
+const REC_CONCURRENCY = 6; // 推荐预查同时在查的作品数（全局；每部 findSources 还受 aggregate 的全局搜词并发限制）
+
+/**
+ * 带优先级的并发限制（数小的先跑，同级先来先跑）：推荐预查让前面的排先查完、先渲染。
+ * 返回的 run(pri, fn) 给出 { promise, raise(pri) }，还在排队的任务可以提前。
+ */
+function priorityLimit(n) {
+  let active = 0;
+  let seq = 0;
+  const queue = [];
+  const next = () => {
+    while (active < n && queue.length) {
+      let bi = 0;
+      for (let i = 1; i < queue.length; i++) if (queue[i].pri < queue[bi].pri || (queue[i].pri === queue[bi].pri && queue[i].seq < queue[bi].seq)) bi = i;
+      const t = queue.splice(bi, 1)[0];
+      active++;
+      Promise.resolve().then(t.fn).then(t.resolve, t.reject).finally(() => { active--; next(); });
+    }
+  };
+  return (pri, fn) => {
+    const t = { pri, seq: seq++, fn, resolve: null, reject: null };
+    const promise = new Promise((resolve, reject) => { t.resolve = resolve; t.reject = reject; queue.push(t); next(); });
+    return { promise, raise: (p) => { if (p < t.pri) t.pri = p; } };
+  };
+}
+const recLimit = priorityLimit(REC_CONCURRENCY);
+
+/**
+ * 推荐排只留「有片源」的（首页用）：
+ * - rows：[{ id, title, items: Promise<候选[]|null> }]，候选是 { key, name, ... }，已按 tmdb.recommendable 过滤、通常拉了 ≥ 2 倍；
+ * - 按排的顺序挑：前面排用过的作品后面排不再出现（跨排去重）；每排按候选顺序预查 availability（全局限并发、走 1 天缓存），
+ *   有片源的留下（显示名 / 海报换成作品详情里的，zh-CN → zh-TW/HK → 原名），凑满 need 张就停；凑不满 min 张整排返回 []（页面不显示）；
+ * - 资源站全都没回应（任何一次预查抛 NoSiteAnswered）：之后不再预查，各排按 TMDB 原样返回（available: null，不判无），
+ *   sitesDown 解析为 true，页面 toast 一次；availability 本身不写负缓存。
+ * 每排的 items 各自解析（前一排挑完、本排的预查结果到了就出），页面可以逐排渲染。
+ * @returns {{ rows: any[], sitesDown: Promise<boolean> }}
+ */
+export function recommendRows(rows, { need = 16, min = 6 } = {}) {
+  const checks = new Map();
+  let down = false;
+  let setDown;
+  const sitesDown = new Promise((r) => { setDown = r; });
+  /** @returns {Promise<any|null>} 有片源 → 作品（拿显示名）；没有 / 查不出来 → null */
+  // pri = 排的序号：前面的排先查（同一部被前面的排要到时提前）
+  const check = (key, pri) => {
+    let c = checks.get(key);
+    if (c) c.raise(pri);
+    else {
+      c = recLimit(pri, async () => {
+        if (down) return null;
+        try {
+          if (!(await availability(key))) return null;
+          return (await (deps.getWork || getWork)(key)) || { key };
+        } catch (e) {
+          if (e instanceof NoSiteAnswered && !down) { down = true; setDown(true); console.warn('[home] 资源站都没有回应，推荐排不过滤'); }
+          return null;
+        }
+      });
+      checks.set(key, c);
+    }
+    return c.promise;
+  };
+  const taken = new Set();
+  let prev = Promise.resolve();
+  const out = rows.map((r, ri) => {
+    const cands = Promise.resolve(r.items).catch(() => null);
+    // 先把本排前 need 个候选排进预查队列（按排的优先级），前面的排挑完时本排多半也查好了
+    cands.then((l) => { if (l && !down) for (const t of l.slice(0, need)) check(t.key, ri); });
+    const items = prev.then(async () => {
+      const l = await cands;
+      if (!l) return null;
+      const pool = l.filter((t) => !taken.has(t.key));
+      const picked = [];
+      for (let i = 0; i < pool.length && picked.length < need && !down; i++) {
+        for (const t of pool.slice(i, i + REC_CONCURRENCY)) check(t.key, ri); // 往后预取一窗
+        const w = await check(pool[i].key, ri);
+        if (w) picked.push({ ...pool[i], name: w.name || pool[i].name, poster: w.poster || pool[i].poster, available: true });
+      }
+      const list = down ? pool.slice(0, need).map((t) => ({ ...t, available: null })) : picked.length >= min ? picked : [];
+      for (const t of list) taken.add(t.key);
+      return list;
+    });
+    prev = items.catch(() => {});
+    return { ...r, items };
+  });
+  prev.then(() => setDown(down));
+  return { rows: out, sitesDown };
+}
+
 /**
  * 搜索结果顺手记下：作品存进 title 表（作品详情取不到时的兜底），片源记进该作品的片源缓存、可用性记成「有」
  * （覆盖之前缓存的「无片源」）。详情页 / 卡片角标随后走 sourcesFor / availability 都能看到。
