@@ -73,9 +73,10 @@ function cluster(vods) {
   for (const v of vods) {
     const nt = ntOf(v);
     if (!nt) continue;
-    const season = seasonOf(v.name) ?? 1;
     const region = vodRegion(v);
     const kind = v.category?.kind || 'other';
+    // 电影片名末尾的数字是续集编号（流浪地球2），不是「第 N 季」：续集和前作靠年份分开
+    const season = kind === 'movie' ? 1 : (seasonOf(v.name) ?? 1);
     const c = clusters.find((c) => {
       if (c.nt !== nt || !regionOk(c.region, region) || !kindOk(c.kind, kind)) return false;
       if (season > 1) {
@@ -135,6 +136,12 @@ function matchTmdb(c, items) {
   }
   return best;
 }
+
+/** 只去空白和标点、保留数字的片名（区分「流浪地球」和「流浪地球2」） */
+const rawKey = (s) => String(s || '').replace(/[\s\p{P}]/gu, '').toLowerCase();
+
+/** TMDB 的人物搜索不按热度排（同名的无名摄影师可能排第一）：按热度降序，稳定排序 */
+const rankPersons = (list) => [...list].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
 
 /** 与查询的相似度：3 完全相同、2 前缀、1 包含、0 无关 */
 function similarity(nq, nts) {
@@ -300,6 +307,7 @@ export async function searchTitles(q) {
     const cs = matched.get(k) || [];
     const w = workFromTmdb(t, [...cs.flatMap((c) => c.vods), ...(extra.get(k) || [])]);
     w._sim = t._sim;
+    w._exact = rawKey(w.name) === rawKey(query) ? 1 : 0;
     w._pop = t.popularity || 0;
     works.push(w);
   }
@@ -307,11 +315,12 @@ export async function searchTitles(q) {
     if (c.tmdb || c.round > 1 || !c.vods.length) continue; // 二轮搜到却没对上 TMDB 的是无关条目
     const w = workFromCluster(c);
     w._sim = similarity(nq, [c.nt]);
+    w._exact = rawKey(w.name) === rawKey(query) ? 1 : 0;
     w._pop = 0;
     works.push(w);
   }
-  works.sort((a, b) => (b.available - a.available) || (b._sim - a._sim) || (b._pop - a._pop) || (b.sources.length - a.sources.length));
-  return works.map(({ _sim, _pop, ...w }) => w);
+  works.sort((a, b) => (b.available - a.available) || (b._sim - a._sim) || (b._exact - a._exact) || (b._pop - a._pop) || (b.sources.length - a.sources.length));
+  return works.map(({ _sim, _pop, _exact, ...w }) => w);
 }
 
 /**
@@ -352,7 +361,7 @@ export async function searchActor(q, { personId } = {}) {
   const query = String(q ?? '').trim();
   const { tmdb } = deps;
   if (!query || !tmdb.hasKey()) return { persons: [], works: [] };
-  const persons = await safe(tmdb.searchPerson(query), []);
+  const persons = rankPersons(await safe(tmdb.searchPerson(query), []));
   if (!persons.length) return { persons: [], works: [] };
   const who = persons.find((p) => p.id === personId) || persons[0];
   const credits = (await safe(tmdb.personCredits(who.id), []))
@@ -377,7 +386,7 @@ export async function searchActorQuick(q, { personId } = {}) {
   const query = String(q ?? '').trim();
   const { tmdb } = deps;
   if (!query || !tmdb.hasKey()) return { persons: [], works: [] };
-  const persons = await safe(tmdb.searchPerson(query), []);
+  const persons = rankPersons(await safe(tmdb.searchPerson(query), []));
   if (!persons.length) return { persons: [], works: [] };
   const who = persons.find((p) => p.id === personId) || persons[0];
   const works = (await safe(tmdb.personCredits(who.id), []))

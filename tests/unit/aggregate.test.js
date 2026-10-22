@@ -235,3 +235,29 @@ test('findSources：所有站点都没回应时 anyAnswered=false，有回应时
   agg._setDeps({ searchAll: async () => Object.assign([], { answered: 3 }), tmdb: { hasKey: () => false } });
   assert.equal((await agg.findSources({ name: '繁花', year: 2023, type: 'tv' })).anyAnswered, true);
 });
+
+test('电影续集（流浪地球2）和前作按年份分开、各站的续集聚成一个，精确同名排前面', async () => {
+  const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
+  deps({ '流浪地球2': [
+    m({ siteId: 1, vodId: '1', name: '流浪地球', year: 2019 }),
+    m({ siteId: 1, vodId: '2', name: '流浪地球2', year: 2023 }),
+    m({ siteId: 2, vodId: '3', name: '流浪地球2', year: 2023 }),
+  ] }, { key: false });
+  const works = await agg.searchTitles('流浪地球2');
+  assert.equal(works.length, 2);
+  assert.equal(works[0].name, '流浪地球2');
+  assert.equal(works[0].sources.length, 2);
+  assert.equal(works[1].name, '流浪地球');
+});
+
+test('演员搜索：同名人物按热度排，取最热的那位（TMDB 把无名同名者排在前面）', async () => {
+  deps({}, {
+    persons: [{ id: 9, name: '刘德华', popularity: 0.27, works: [] }, { id: 25246, name: '刘德华', popularity: 6.6, works: [] }],
+    credits: [tm({ id: 5, name: '无间道', year: 2002, type: 'movie', popularity: 9 })],
+  });
+  const r = await agg.searchActor('刘德华');
+  assert.deepEqual(r.persons.map((p) => p.id), [25246, 9]);
+  assert.equal(r.works.length, 1);
+  const q = await agg.searchActorQuick('刘德华');
+  assert.equal(q.person, 25246);
+});
