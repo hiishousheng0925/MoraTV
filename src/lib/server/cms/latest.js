@@ -75,7 +75,7 @@ export async function collectLatest() {
     const res = await Promise.all(batch.map((s) => fromSite(s).catch(() => null)));
     res.forEach((r) => { if (r) got.push(r); });
   }
-  if (!got.length) throw new Error('资源站都没有回应');
+  if (!got.length) throw Object.assign(new Error('资源站都没有回应'), { noSiteAnswered: true }); // 首页据此提示「资源站暂时连不上」
   // 各站合并后按更新时间倒序（同一格式的时间串直接比字符串），稳定排序保持站点健康度先后
   const all = got.flat().sort((a, b) => (b.time || '').localeCompare(a.time || ''));
   const rows = Object.fromEntries(LATEST_KINDS.map((k) => [k, []]));

@@ -74,12 +74,21 @@ test('搜索说有 → 详情也有：rememberSearch 写进片源缓存，分季
 });
 
 /** 推荐预查的假依赖：has 里的 key 有片源；down=true 时所有站都没回应 */
-function setupRec({ has = [], down = false, names = {}, delay = 0 } = {}) {
+function setupRec({ has = [], down = false, names = {}, gate = null, onFind = null, downAfter = Infinity, workFails = [] } = {}) {
   const calls = { find: [] };
   works._setDeps({
-    getWork: async (key) => ({ key, type: 'tv', name: names[key] || `详情名${key}`, poster: `/p-${key}.jpg`, seasons: [] }),
+    getWork: async (key) => {
+      if (workFails.includes(key)) throw new Error('TMDB 503');
+      return { key, type: 'tv', name: names[key] || `详情名${key}`, poster: `/p-${key}.jpg`, seasons: [] };
+    },
     listSites: () => [{ id: 1, name: '站A', latency_ms: 120 }],
-    findSources: async (w) => { calls.find.push(w.key); if (delay) await new Promise((r) => setTimeout(r, delay)); return down ? list([], false) : list(has.includes(w.key) ? [vod] : [], true); },
+    findSources: async (w) => {
+      calls.find.push(w.key);
+      onFind?.(calls.find.length);
+      if (gate) await gate;
+      const isDown = down || calls.find.length > downAfter;
+      return isDown ? list([], false) : list(has.includes(w.key) ? [vod] : [], true);
+    },
   });
   return calls;
 }
@@ -107,9 +116,12 @@ test('recommendRows：只留有片源的、名字换成详情名、凑满 need �
 test('recommendRows：前面的排先查（后面的排的预查排在后面）', async () => {
   const a = cand(500, 8);
   const b = cand(510, 16);
-  const calls = setupRec({ has: [...a, ...b].map((t) => t.key), delay: 20 });
-  // 后一排的候选先到：它先占满空位（6 个），但排队中的让前一排插到前面
-  const late = new Promise((r) => setTimeout(() => r(a), 5));
+  // 后一排的候选先到：它先占满空位（6 个，卡在 gate 上）；这时前一排的候选才到，排队中的让前一排插到前面
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let arrive;
+  const late = new Promise((r) => { arrive = r; });
+  const calls = setupRec({ has: [...a, ...b].map((t) => t.key), gate, onFind: (n) => { if (n === 6) { arrive(a); setImmediate(release); } } });
   const { rows } = works.recommendRows([{ id: 'a', items: late }, { id: 'b', items: Promise.resolve(b) }], { need: 16, min: 2 });
   await rows[1].items;
   assert.deepEqual(calls.find.slice(0, 6), keysOf(b.slice(0, 6)));
@@ -136,6 +148,30 @@ test('recommendRows：资源站全都没回应 → 推荐不过滤、sitesDown=t
   assert.deepEqual(keysOf(await rows[1].items), ['tv-4100', 'tv-4101', 'tv-4102'], '仍跨排去重');
   assert.equal(await sitesDown, true);
   assert.equal(db().prepare("SELECT COUNT(*) c FROM cache WHERE k LIKE 'avail%tv-40%' OR k LIKE 'src%tv-40%'").get().c, 0);
+});
+
+test('recommendRows：一排查到一半资源站全挂 → 这排及后面的排都不过滤', async () => {
+  const a = cand(600, 10);
+  setupRec({ has: keysOf(a), downAfter: 3 });
+  const { rows, sitesDown } = works.recommendRows([{ id: 'a', items: Promise.resolve(a) }, { id: 'b', items: Promise.resolve(cand(610, 5)) }], { need: 8, min: 2 });
+  const ra = await rows[0].items;
+  assert.deepEqual(keysOf(ra), keysOf(a.slice(0, 8)));
+  assert.equal(ra.every((t) => t.available === null), true);
+  assert.equal((await rows[1].items).length, 5);
+  assert.equal(await sitesDown, true);
+});
+
+test('recommendRows：其他错误当作没片源跳过，每种错误只记一次日志', async () => {
+  const a = cand(700, 8);
+  setupRec({ has: keysOf(a), workFails: ['tv-7000', 'tv-7001', 'tv-7002'] });
+  const warns = [];
+  const orig = console.warn;
+  console.warn = (...x) => warns.push(x.join(' '));
+  try {
+    const { rows } = works.recommendRows([{ id: 'a', items: Promise.resolve(a) }], { need: 8, min: 2 });
+    assert.deepEqual(keysOf(await rows[0].items), keysOf(a.slice(3)));
+  } finally { console.warn = orig; }
+  assert.equal(warns.filter((w) => w.includes('TMDB 503')).length, 1);
 });
 
 test('rememberSearch 只记通过片源判定的条目（同名同年的内地剧不进韩剧的片源缓存）', async () => {

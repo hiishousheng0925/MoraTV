@@ -202,6 +202,8 @@ const recLimit = priorityLimit(REC_CONCURRENCY);
  */
 export function recommendRows(rows, { need = 16, min = 6 } = {}) {
   const checks = new Map();
+  const taken = new Set();
+  const warned = new Set();
   let down = false;
   let setDown;
   const sitesDown = new Promise((r) => { setDown = r; });
@@ -212,12 +214,19 @@ export function recommendRows(rows, { need = 16, min = 6 } = {}) {
     if (c) c.raise(pri);
     else {
       c = recLimit(pri, async () => {
-        if (down) return null;
+        // 轮到它时已被前面的排挑走（后面的排预取的）：不用再查
+        if (down || taken.has(key)) return null;
         try {
           if (!(await availability(key))) return null;
           return (await (deps.getWork || getWork)(key)) || { key };
         } catch (e) {
-          if (e instanceof NoSiteAnswered && !down) { down = true; setDown(true); console.warn('[home] 资源站都没有回应，推荐排不过滤'); }
+          if (e instanceof NoSiteAnswered) {
+            if (!down) { down = true; setDown(true); console.warn('[home] 资源站都没有回应，推荐排不过滤'); }
+          } else {
+            // 其他错误（TMDB 详情取不到等）当作没片源跳过，但每种错误记一次，免得 TMDB 故障看起来像「没片源」
+            const kind = String(e?.message || e);
+            if (!warned.has(kind)) { warned.add(kind); console.warn('[home] 推荐预查失败，跳过', key, kind); }
+          }
           return null;
         }
       });
@@ -225,7 +234,6 @@ export function recommendRows(rows, { need = 16, min = 6 } = {}) {
     }
     return c.promise;
   };
-  const taken = new Set();
   let prev = Promise.resolve();
   const out = rows.map((r, ri) => {
     const cands = Promise.resolve(r.items).catch(() => null);

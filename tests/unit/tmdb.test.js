@@ -253,6 +253,21 @@ test('recommendable：排除动画 / 少儿 / 新闻 / 脱口秀，评分人数 
   for (const g of [16, 10762, 10763, 10767]) assert.equal(ok([18, g], 500), false, String(g));
   assert.equal(ok([10764, 10767], 50, { keep: [10767] }), true);
   assert.equal(ok([16, 10767], 50, { keep: [10767] }), false);
+  assert.equal(ok([18], 5, { minVotes: tmdb.MIN_VOTES_LOW }), true);
+  assert.equal(ok([18], 4, { minVotes: tmdb.MIN_VOTES_LOW }), false);
+});
+
+test('评分人数门槛按地区：港 / 台 ≥ 5，其余 ≥ 20；discover 出站参数跟着变', async () => {
+  assert.equal(tmdb.MIN_VOTES_LOW, 5);
+  for (const r of ['hk', 'HK', 'tw', 'TW']) assert.equal(tmdb.minVotesFor(r), 5, r);
+  for (const r of ['cn', 'kr', 'west', 'US', '', undefined]) assert.equal(tmdb.minVotesFor(r), 20, String(r));
+  const last = () => hits.findLast((h) => h.path.startsWith('/3/discover/')).q;
+  await tmdb.discover('tv', { region: 'hk', kind: 'tv' });
+  assert.equal(last()['vote_count.gte'], '5');
+  await tmdb.discover('tv', { region: 'tw', kind: 'tv' });
+  assert.equal(last()['vote_count.gte'], '5');
+  await tmdb.discover('tv', { region: 'kr', kind: 'tv' });
+  assert.equal(last()['vote_count.gte'], '20');
 });
 
 test('discover / trending：结果按推荐规则过滤；trending 原样返回、带页码', async () => {

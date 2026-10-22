@@ -70,15 +70,21 @@ export function mapItem(r, forceType) {
  */
 export const EXCLUDE_GENRES = [16, 10762, 10763, 10767];
 export const MIN_VOTES = 20;
+/** 港 / 台剧在 TMDB 上评分人数普遍很少（HK 剧集 ≥20 票的只有个位数），门槛放低 */
+export const MIN_VOTES_LOW = 5;
+const LOW_VOTE_REGIONS = new Set(['HK', 'TW']);
+/** 某个地区（cn/hk/tw/… 或 ISO 国家码；空 = 不限地区）的评分人数门槛 */
+export const minVotesFor = (region) => (LOW_VOTE_REGIONS.has(String(region || '').toUpperCase()) ? MIN_VOTES_LOW : MIN_VOTES);
 
 /**
  * 能不能进推荐 / 浏览：没有被排除的类型、评分人数够（太冷门 / 还没上映的片资源站基本没有）。
  * @param {{genreIds?: number[], voteCount?: number}} t mapItem 的结果
- * @param {{keep?: number[]}} [opts] keep：这次明确要的类型不排除（浏览「综艺」要脱口秀）
+ * @param {{keep?: number[], minVotes?: number}} [opts] keep：这次明确要的类型不排除（浏览「综艺」要脱口秀）；
+ *   minVotes：评分人数门槛，缺省 MIN_VOTES，按地区取用 minVotesFor(region)
  */
-export function recommendable(t, { keep = [] } = {}) {
+export function recommendable(t, { keep = [], minVotes = MIN_VOTES } = {}) {
   if ((t.genreIds || []).some((g) => EXCLUDE_GENRES.includes(g) && !keep.includes(g))) return false;
-  return (t.voteCount ?? 0) >= MIN_VOTES;
+  return (t.voteCount ?? 0) >= minVotes;
 }
 
 const mapList = (j, type) => (j?.results || [])
@@ -218,7 +224,8 @@ const REGION = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', jp: 'JP', th: 'TH', wes
  */
 export async function discover(type, { region, page = 1, kind } = {}) {
   if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
-  const params = { sort_by: 'popularity.desc', page, include_adult: 'false', 'vote_count.gte': MIN_VOTES };
+  const minVotes = minVotesFor(region);
+  const params = { sort_by: 'popularity.desc', page, include_adult: 'false', 'vote_count.gte': minVotes };
   if (region) { const r = String(region); params.with_origin_country = REGION[r.toLowerCase()] || r.toUpperCase(); }
   const keep = kind === 'variety' && type === 'tv' ? [10767] : [];
   const without = new Set(EXCLUDE_GENRES.filter((g) => !keep.includes(g)));
@@ -226,5 +233,5 @@ export async function discover(type, { region, page = 1, kind } = {}) {
   else if (kind === 'doc') params.with_genres = '99';
   else if (kind === 'tv' && type === 'tv') for (const g of [10764, 10767, 99]) without.add(g);
   params.without_genres = [...without].join(',');
-  return mapList(await get(`/discover/${type}`, params, TTL_LIST), type).filter((t) => recommendable(t, { keep }));
+  return mapList(await get(`/discover/${type}`, params, TTL_LIST), type).filter((t) => recommendable(t, { keep, minVotes }));
 }
