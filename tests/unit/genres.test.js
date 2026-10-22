@@ -101,7 +101,7 @@ test('genreCounts：只留有内容的题材、按表顺序、整组缓存；部
   assert.ok(seen.every((x) => x === '48'));
   assert.ok(t.some((x) => x.id === 'fanzui'), '计数失败的当作有内容');
   const e = db().prepare("SELECT expires_at e FROM cache WHERE k LIKE 'browse:genres:%hk:tvb'").get().e;
-  assert.ok(e - Date.now() / 1000 <= 605);
+  assert.ok(e - Date.now() / 1000 <= 605 && e - Date.now() / 1000 > 0);
   // 全部失败：抛错
   B._setDeps({ discoverCount: async () => { throw new Error('down'); } });
   await assert.rejects(() => B.genreCounts({ kind: 'movie', region: 'jp', net: '' }));
@@ -195,4 +195,14 @@ test('browseSites：翻页优先用 src 那个站；没回应换下一个；全�
   assert.equal(r2.site, 1, 'src 那个站挂了换健康的');
   fakeSites(sites.map((s) => ({ ...s, down: true, api: s.api + 'x' })), () => null);
   await assert.rejects(() => B.browseSites({ kind: 'tv', region: 'cn', page: 1, src: null }), (e) => e.noSiteAnswered === true);
+});
+
+test('genreCounts：选了年代按年代计数（缓存分开）', async () => {
+  const ranges = [];
+  B._setDeps({ discoverCount: async (type, o) => { ranges.push(o.range); return o.range ? (o.filter.with_keywords === '4379' ? 0 : 1) : 1; } });
+  const all = await B.genreCounts({ kind: 'tv', region: 'cn', net: '', dec: '' });
+  const old = await B.genreCounts({ kind: 'tv', region: 'cn', net: '', dec: 'old' });
+  assert.ok(all.some((x) => x.id === 'chuanyue'));
+  assert.ok(!old.some((x) => x.id === 'chuanyue'));
+  assert.ok(ranges.some((r) => r && r[1] === '1999-12-31'));
 });

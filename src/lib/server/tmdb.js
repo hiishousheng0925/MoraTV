@@ -91,18 +91,62 @@ const mapList = (j, type) => (j?.results || [])
   .filter((r) => type || r.media_type === 'tv' || r.media_type === 'movie')
   .map((r) => mapItem(r, type));
 
+/**
+ * 港产三级剥削片：TMDB 不标 adult，也没有「三级」关键词。用「香港出品 + 香港分级 III + 性暴力 / 情色关键词」三者同时满足圈出一份片单，
+ * 按 id 排除（单靠分级会误伤《黑社会》这类 III 级正片，单靠 rapist 关键词会误伤《恐怖角》）。2026-10 实测 49 部。
+ * 关键词：rapist / rape / date rape / teenage rape / marital rape / rape revenge / rape and revenge / gang rape / sexual violence /
+ * sexual assault / sexploitation / pornography + EXCLUDE_KEYWORDS 的情色词。
+ */
+export const CAT3_KEYWORDS = [41381, 570, 171662, 15241, 164263, 196399, 184352, 12365, 11534, 190327, 10053, 445];
+const BLOCK_TTL = 7 * DAY;
+const BLOCK_MAX_PAGES = 10;
+const BLOCK_RETRY_MS = 10 * 60 * 1000;
+let blockFailedAt = 0;
+const EMPTY_BLOCK = new Set();
+
+/** 排除片单（电影 id 的 Set）。缓存 7 天；取失败当作空，10 分钟内不再试（不让每次列表请求都去撞）。没 key 为空。 */
+export async function blockedMovieIds() {
+  if (!hasKey() || Date.now() - blockFailedAt < BLOCK_RETRY_MS) return EMPTY_BLOCK;
+  try {
+    const ids = await cached('tmdb:blocked:v1', BLOCK_TTL, async () => {
+      const params = { certification_country: 'HK', certification: 'III', with_origin_country: 'HK', include_adult: 'true',
+        with_keywords: [...CAT3_KEYWORDS, ...EXCLUDE_KEYWORDS].join('|') };
+      const out = [];
+      for (let page = 1; page <= BLOCK_MAX_PAGES; page++) {
+        const j = await raw('/discover/movie', { ...params, page });
+        out.push(...(j?.results || []).map((r) => r.id));
+        if (!j || page >= (Number(j.total_pages) || 1)) break;
+      }
+      return out;
+    });
+    return new Set(ids || []);
+  } catch (e) {
+    blockFailedAt = Date.now();
+    console.warn('[tmdb] 排除片单', e?.message || e);
+    return EMPTY_BLOCK;
+  }
+}
+
+/** 去掉排除片单里的电影（mapItem 的结果） */
+async function unblock(list) {
+  const b = await blockedMovieIds();
+  return b.size ? list.filter((t) => !(t.type === 'movie' && b.has(t.id))) : list;
+}
+
 export async function searchMulti(q, page = 1) {
   if (!hasKey() || !String(q || '').trim()) return [];
-  return mapList(await get('/search/multi', { query: String(q).trim(), page, include_adult: 'false' }, TTL_LIST));
+  return unblock(mapList(await get('/search/multi', { query: String(q).trim(), page, include_adult: 'false' }, TTL_LIST)));
 }
 
 export async function searchPerson(q) {
   if (!hasKey() || !String(q || '').trim()) return [];
   const j = await get('/search/person', { query: String(q).trim(), include_adult: 'false' }, TTL_LIST);
+  const b = await blockedMovieIds();
   return (j?.results || []).map((p) => ({
     id: p.id, name: p.name || '', originalName: p.original_name || p.name || '', profile: p.profile_path || null,
     knownFor: p.known_for_department || '', popularity: p.popularity ?? 0,
-    works: (p.known_for || []).filter((r) => r.media_type === 'tv' || r.media_type === 'movie').map((r) => mapItem(r)),
+    works: (p.known_for || []).filter((r) => r.media_type === 'tv' || r.media_type === 'movie').map((r) => mapItem(r))
+      .filter((t) => !(t.type === 'movie' && b.has(t.id))),
   }));
 }
 
@@ -139,11 +183,11 @@ export async function personCredits(id) {
   const j = await get(`/person/${id}`, { append_to_response: 'combined_credits' }, TTL_DETAIL);
   const names = [j?.name, ...(j?.also_known_as || [])].filter(Boolean);
   const seen = new Set();
-  return (j?.combined_credits?.cast || [])
+  return unblock((j?.combined_credits?.cast || [])
     .filter((r) => (r.media_type === 'tv' || r.media_type === 'movie') && isActingCredit(r, names)
       && !seen.has(r.media_type + r.id) && seen.add(r.media_type + r.id))
     .map((r) => mapItem(r))
-    .sort((a, b) => b.popularity - a.popularity);
+    .sort((a, b) => b.popularity - a.popularity));
 }
 
 const ZH_ORDER = ['CN', 'TW', 'HK', 'SG'];
@@ -205,25 +249,26 @@ export async function season(id, n) {
   };
 }
 
-/** 周榜（原样，不过滤；进推荐前用 recommendable() 过滤）。@param {'tv'|'movie'|'all'} [type] */
+/** 周榜（不按推荐规则过滤，进推荐前用 recommendable() 过滤；排除片单照样去掉）。@param {'tv'|'movie'|'all'} [type] */
 export async function trending(type = 'all', page = 1) {
   if (!hasKey()) return [];
   const t = type === 'tv' || type === 'movie' ? type : 'all';
   const j = await get(`/trending/${t}/week`, page > 1 ? { page } : {}, TTL_LIST);
-  return mapList(j, t === 'all' ? undefined : t);
+  return unblock(mapList(j, t === 'all' ? undefined : t));
 }
 
 const REGION = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', jp: 'JP', th: 'TH', west: 'US|GB' };
 
 /** 按评分排时的评分人数门槛（太少人评的高分没意义）：港 / 台放低 */
 export const SCORE_MIN_VOTES = 50;
+export const SCORE_MIN_VOTES_LOW = 10;
 /**
  * TMDB 不标三级片：情色类关键词（erotic / softcore / erotica / sexploitation / erotic comedy / erotic romance / erotic theater /
  * erotic vignettes）一律排除，港片浏览「惊悚」里的聊斋艳谭、玉蒲团之类就是靠它挡掉的（2026-10 实测 id）。
  */
 export const EXCLUDE_KEYWORDS = [256466, 155477, 325693, 10053, 302868, 298666, 352503, 155691];
-export const SCORE_MIN_VOTES_LOW = 10;
-const today = () => new Date().toISOString().slice(0, 10);
+/** 本地日期（UTC+8 早上 8 点前用 UTC 会把当天首播的算成「未来」） */
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /**
  * discover 的出站参数（不含 page / api_key）。规则见 discover()。
@@ -275,7 +320,7 @@ export async function discover(type, opts = {}) {
   if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
   const { params, keep, minVotes } = discoverParams(type, opts);
   const j = await get(`/discover/${type}`, { ...params, page: opts.page || 1 }, TTL_LIST);
-  const out = mapList(j, type).filter((t) => recommendable(t, { keep, minVotes }));
+  const out = (await unblock(mapList(j, type))).filter((t) => recommendable(t, { keep, minVotes }));
   out.totalPages = Math.min(500, Number(j?.total_pages) || 0);
   out.totalResults = Number(j?.total_results) || 0;
   return out;

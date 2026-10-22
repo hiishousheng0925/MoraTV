@@ -14,7 +14,7 @@
   import { toast } from '$lib/ui/toast.svelte.js';
   import { toCard } from '$lib/work.js';
   import { avail, watchAvail } from '$lib/avail.svelte.js';
-  import { genresFor, genreById, networkFor, SORTS, DECADES } from '$lib/genres.js';
+  import { genresFor, genreById, genreParams, networkFor, SORTS, DECADES } from '$lib/genres.js';
   import FilmSlate from 'phosphor-svelte/lib/FilmSlate';
 
   let { data } = $props();
@@ -62,7 +62,7 @@
     {/if}
   </div>
   <div class="mt-3 flex flex-wrap gap-2" aria-label="地区">
-    {#each REGIONS as [k, l] (k)}<Chip on={data.region === k} href={href({ region: k, net: '' })}>{l}</Chip>{/each}
+    {#each REGIONS as [k, l] (k)}<Chip on={data.region === k} href={href({ region: k, net: '', g: data.g && genreParams(data.g, type, k) ? data.g : '' })}>{l}</Chip>{/each}
   </div>
 
   {#if showGenres}

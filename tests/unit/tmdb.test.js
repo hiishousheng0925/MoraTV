@@ -35,6 +35,21 @@ before(async () => {
       return res.end(png);
     }
     if (u.searchParams.get('api_key') !== 'k-test') return json(res, { status_message: 'Invalid API key' }, 401);
+    if (p === '/3/discover/movie' && u.searchParams.get('certification') === 'III') {
+      // 排除片单：分两页
+      const pg = Number(u.searchParams.get('page'));
+      return json(res, { total_pages: 2, results: pg === 1 ? [{ id: 221912 }] : [{ id: 45453 }] });
+    }
+    if (p === '/3/discover/movie' && u.searchParams.get('with_genres') === '53|27') {
+      return json(res, { total_pages: 1, results: [
+        { id: 221912, title: '强奸终极篇：最后羔羊', genre_ids: [53], vote_count: 22 },
+        { id: 18747, title: '黑社会', genre_ids: [80, 53], vote_count: 300 },
+        { id: 1598, title: '恐怖角', genre_ids: [53], vote_count: 2000 },
+      ] });
+    }
+    if (p === '/3/search/multi' && u.searchParams.get('query') === '羔羊') {
+      return json(res, { results: [{ media_type: 'movie', id: 221912, title: '强奸终极篇：最后羔羊' }, { media_type: 'movie', id: 1598, title: '恐怖角' }] });
+    }
     if (p === '/3/search/multi') {
       return json(res, { results: [
         { media_type: 'tv', id: 106841, name: '繁花', original_name: '繁花', first_air_date: '2023-12-27', origin_country: ['CN'], poster_path: '/a.jpg', overview: '上海', popularity: 50.5, vote_average: 8.1 },
@@ -356,7 +371,8 @@ test('discoverParams：题材 / 电视台叠在剧集 / 电影上，综艺 / 纪
 
 test('discoverParams：排序 / 年代', () => {
   const p = (type, o) => tmdb.discoverParams(type, o).params;
-  const today = new Date().toISOString().slice(0, 10);
+  const d0 = new Date();
+  const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
   const n = p('tv', { region: 'kr', kind: 'tv', sort: 'new' });
   assert.equal(n.sort_by, 'first_air_date.desc');
   assert.equal(n['first_air_date.lte'], today, '最新只看已经开播的');
@@ -383,4 +399,19 @@ test('discover 带 totalPages；discoverCount 取 total_results 并缓存', asyn
   assert.equal(await tmdb.discoverCount('movie', { kind: 'movie', filter: { with_genres: '777' } }), 0);
   assert.equal(hits.length - before, 1, '第二次走缓存');
   assert.equal(hits.at(-1).q.with_genres, '777');
+});
+
+test('港产三级剥削片按 id 排除（分级 III ∩ 香港出品 ∩ 性暴力 / 情色关键词）；《黑社会》《恐怖角》不误伤', async () => {
+  const d = await tmdb.discover('movie', { region: 'hk', kind: 'movie', filter: { with_genres: '53|27' } });
+  assert.deepEqual(d.map((x) => x.id), [18747, 1598]);
+  const q = hits.find((h) => h.q.certification === 'III').q;
+  assert.equal(q.certification_country, 'HK');
+  assert.equal(q.with_origin_country, 'HK');
+  assert.ok(q.with_keywords.split('|').includes('41381'));
+  assert.ok(hits.some((h) => h.q.certification === 'III' && h.q.page === '2'), '翻完所有页');
+  assert.deepEqual([...(await tmdb.blockedMovieIds())].sort(), [221912, 45453].sort());
+  const n = hits.filter((h) => h.q.certification === 'III').length;
+  await tmdb.discover('movie', { region: 'hk', kind: 'movie', filter: { with_genres: '53|27' } });
+  assert.equal(hits.filter((h) => h.q.certification === 'III').length, n, '片单走缓存');
+  assert.deepEqual((await tmdb.searchMulti('羔羊')).map((x) => x.id), [1598], '搜索也去掉');
 });

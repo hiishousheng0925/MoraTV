@@ -77,17 +77,17 @@ const countLimit = pLimit(COUNT_CONCURRENCY); // 全局：来回切地区也不�
 
 /**
  * 当前形态 × 地区（× TVB）下有内容的题材：[{id, label}]，按 genres.js 的顺序。
- * 每个题材一次 discover 计数（total_results，不看年代 / 排序），整组缓存 2 天；有计数失败的那组只缓存 10 分钟（失败的当作有内容先显示）。
+ * 每个题材一次 discover 计数（total_results；选了年代就按年代计，不看排序），整组缓存 2 天；有计数失败的那组只缓存 10 分钟（失败的当作有内容先显示）。
  */
-export function genreCounts({ kind, region, net }) {
+export function genreCounts({ kind, region, net, dec = '' }) {
   if (!hasGenres(kind)) return Promise.resolve([]);
   const k = KINDS[kind];
-  const key = `browse:genres:v1:${kind}:${region || 'all'}:${net || '-'}`;
+  const key = `browse:genres:v1:${kind}:${region || 'all'}:${net || '-'}${dec ? ':' + dec : ''}`;
   return cached(key, 2 * DAY, async () => {
     let failed = 0;
     const list = await Promise.all(genresFor(k.type, region).map((gn) => countLimit(async () => {
       try {
-        const n = await deps.discoverCount(k.type, { region: region || undefined, kind: k.kind, filter: filterOf(k.type, region, gn.id, net) });
+        const n = await deps.discoverCount(k.type, { region: region || undefined, kind: k.kind, filter: filterOf(k.type, region, gn.id, net), range: decadeRange(dec) });
         return { id: gn.id, label: gn.label, n };
       } catch (e) {
         failed++;
@@ -168,6 +168,8 @@ async function sitePage(site, { kind, region, page }) {
   const res = await Promise.all(ids.map((t) => limit(() => catPage(site, t, pg).catch(() => null))));
   if (!res.some(Boolean)) { deps.recordResult(site.id, false, Date.now() - t0); return null; }
   deps.recordResult(site.id, true, Date.now() - t0);
+  const bad = res.filter((j) => !j).length;
+  if (bad) console.warn(`[browse] 站点 ${site.id} 有 ${bad}/${ids.length} 个类目没回应，这一页会少一些`);
   const seen = new Set();
   const items = res.flatMap((j) => (j ? toVods({ list: j.list.slice(off, off + n) }, site.id) : []))
     .filter((v) => v.category.kind === kind && v.lines.length && (!localRegion || regionOfVod(v) === region))
