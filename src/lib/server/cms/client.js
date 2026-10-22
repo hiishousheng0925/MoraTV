@@ -1,5 +1,5 @@
 /** 苹果 CMS v10 JSON 接口客户端。任何失败（网络 / 超时 / HTML / code 非 1）都返回空，不抛。 */
-import { assertPublic, fetchWithTimeout } from '../net.js';
+import { fetchWithTimeout, readTextCapped } from '../net.js';
 import { normalizeVod } from './parse.js';
 
 /**
@@ -10,10 +10,9 @@ export async function cmsGet(site, params, timeoutMs = 8000) {
   try {
     const u = new URL(site.api);
     for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
-    await assertPublic(u.href);
     const res = await fetchWithTimeout(u.href, { headers: { accept: 'application/json', 'user-agent': 'Mozilla/5.0 MoraTV' } }, timeoutMs);
     if (!res.ok) return null;
-    const j = JSON.parse(await res.text());
+    const j = JSON.parse(await readTextCapped(res));
     // 苹果 CMS 成功时 code 为 1（个别站用 200）
     if (!j || (j.code !== 1 && j.code !== 200)) return null;
     return j;

@@ -7,12 +7,12 @@ import { join } from 'node:path';
 
 const home = mkdtempSync(join(tmpdir(), 'moratv-test-'));
 process.env.MORA_HOME = home;
-process.env.MORA_TEST_HOOKS = '1'; // 允许连回环地址（本地测试服务）
 
 const { db } = await import('../../src/lib/server/db.js');
 const { searchSite, detailSite, listCategories } = await import('../../src/lib/server/cms/client.js');
 const sites = await import('../../src/lib/server/cms/sites.js');
-const { assertPublic } = await import('../../src/lib/server/net.js');
+const { assertPublic, fetchWithTimeout, _setAllowPrivate } = await import('../../src/lib/server/net.js');
+_setAllowPrivate(true); // 允许连回环地址（本地测试服务）
 
 const vod = { vod_id: 1, vod_name: '繁花', vod_year: '2023', type_name: '国产剧', vod_play_from: 'm3u8', vod_play_url: '第1集$https://a/1.m3u8' };
 let srv; let base;
@@ -28,6 +28,7 @@ before(async () => {
     }
     if (p === '/html') { res.setHeader('content-type', 'text/html'); return res.end('<html>nope</html>'); }
     if (p === '/code0') return res.end(JSON.stringify({ code: 0, msg: 'x', list: [] }));
+    if (p === '/big') { res.setHeader('content-type', 'application/json'); return res.end('{"code":1,"list":[],"pad":"' + 'x'.repeat(6 * 1024 * 1024) + '"}'); }
     if (p === '/slow') return void setTimeout(() => res.end('{}'), 3000);
     res.statusCode = 404; res.end();
   });
@@ -90,11 +91,35 @@ test('searchAll: 一站失败另一站成功，失败记 fail_streak', async () 
   assert.equal(rows.find((x) => x.id === good.id).fail_streak, 0);
 });
 
-test('assertPublic 拒绝内网 / 非 http（放行开关关闭后）', async () => {
-  delete process.env.MORA_TEST_HOOKS;
+test('assertPublic 拒绝内网 / 非 http / 各种 IPv6 内网形式（放行开关关闭后）', async () => {
+  _setAllowPrivate(false);
   try {
-    for (const u of ['http://127.0.0.1/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://172.16.0.1/', 'http://100.64.0.1/', 'http://169.254.1.1/', 'http://[::1]/', 'http://localhost/', 'ftp://example.com/'])
+    for (const u of ['http://127.0.0.1/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://172.16.0.1/', 'http://100.64.0.1/', 'http://169.254.1.1/', 'http://[::1]/', 'http://[::]/', 'http://localhost/', 'ftp://example.com/',
+      'http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]/', 'http://[::ffff:10.0.0.1]/', 'http://[::ffff:c0a8:101]/', 'http://[::ffff:100.64.0.1]/',
+      'http://[fc00::1]/', 'http://[fd12:3456::1]/', 'http://[fe80::1]/', 'http://[febf::1]/', 'http://[ff02::1]/',
+      'http://[64:ff9b::7f00:1]/', 'http://[64:ff9b::10.0.0.1]/', 'http://[2002:7f00:1::]/', 'http://[::127.0.0.1]/'])
       await assert.rejects(assertPublic(u), (e) => e.status === 403, u);
     await assertPublic('http://1.1.1.1/');
-  } finally { process.env.MORA_TEST_HOOKS = '1'; }
+    await assertPublic('http://[2606:4700:4700::1111]/');
+    await assertPublic('http://[::ffff:1.1.1.1]/');
+  } finally { _setAllowPrivate(true); }
+});
+
+test('重定向到内网被拒（每一跳都校验），跳数有上限', async () => {
+  _setAllowPrivate(false);
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = async (u) => {
+      if (String(u).startsWith('http://1.1.1.1/')) return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:1/x' } });
+      if (String(u).startsWith('http://1.1.1.2/')) return new Response(null, { status: 302, headers: { location: '/again' } });
+      return new Response('ok');
+    };
+    await assert.rejects(fetchWithTimeout('http://1.1.1.1/a'), (e) => e.status === 403);
+    await assert.rejects(fetchWithTimeout('http://1.1.1.2/a'), (e) => e.status === 502); // 无限跳转
+    assert.equal(await (await fetchWithTimeout('http://1.1.1.3/')).text(), 'ok');
+  } finally { globalThis.fetch = real; _setAllowPrivate(true); }
+});
+
+test('超过 5MB 的响应 -> searchSite 返回 []', async () => {
+  assert.deepEqual(await searchSite({ id: 1, api: base + '/big' }, 'x', { timeoutMs: 5000 }), []);
 });

@@ -11,7 +11,7 @@ const cases = [
   ['动作片', 'movie', null], ['喜剧片', 'movie', null], ['电影', 'movie', null],
   ['未知xx', 'other', null],
   ['连续剧', 'tv', null], ['电视剧', 'tv', null], ['港澳剧', 'tv', 'hk'], ['泰剧', 'tv', 'th'], ['马泰剧', 'tv', 'th'],
-  ['内地剧', 'tv', 'cn'], ['美国剧', 'tv', 'west'], ['日韩综艺', 'variety', 'kr'], ['港台综艺', 'variety', 'hk'],
+  ['内地剧', 'tv', 'cn'], ['美国剧', 'tv', 'west'], ['日韩综艺', 'variety', 'other'], ['港台综艺', 'variety', 'hk'],
   ['短剧大全', 'short', null], ['古装仙侠', 'short', null], ['预告片', 'drop', null], ['电影解说', 'drop', null],
   ['体育赛事', 'drop', null], ['伦理片', 'drop', null], ['记录片', 'doc', null], ['剧情片', 'movie', null],
 ];
