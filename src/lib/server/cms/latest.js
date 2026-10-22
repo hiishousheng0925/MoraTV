@@ -5,7 +5,7 @@
  *
  * latestRows() -> { tv: Item[], movie: Item[], variety: Item[] }
  *   Item = { key: 'cms-<siteId>-<vodId>', name, poster, year, region, kind, sub, available: true }
- * 所有候选站点都没回应时抛错（不入缓存，调用方降级）。
+ * 所有候选站点都没回应、或三排全空时抛错（不入缓存，调用方降级）。
  */
 import { cached } from '../cache.js';
 import { listSites, recordResult } from './sites.js';
@@ -86,6 +86,8 @@ export async function collectLatest() {
     const row = rows[v.category.kind];
     if (row.length < ROW) row.push(toItem(v));
   }
+  // 站点回了但三排全空（时间窗里没东西 / 全被滤掉）：当失败处理，不缓存 30 分钟的空首页
+  if (LATEST_KINDS.every((k) => !rows[k].length)) throw new Error('最近更新为空');
   return rows;
 }
 

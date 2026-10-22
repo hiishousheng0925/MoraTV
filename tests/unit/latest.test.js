@@ -30,6 +30,9 @@ const A = [
 // 站 B：和 A 重复的「慶餘年」（繁体，同年）+ 一部港剧
 const B = [[vod(11, '慶餘年', '国产剧', '2026-10-22 11:00:00'), vod(12, '新闻女王2', '香港剧', '2026-10-22 05:00:00')]];
 
+// 站点正常回 JSON，但全是丢弃类目 / 没有 m3u8 的条目
+const EMPTY = [[vod(21, '某动画', '国产动漫', '2026-10-22 10:00:00'), vod(22, '网页线路', '国产剧', '2026-10-22 09:00:00', { vod_play_from: 'web', vod_play_url: '第1集$https://v.example/y.html' })]];
+
 const hits = [];
 let srv; let base;
 before(async () => {
@@ -37,7 +40,7 @@ before(async () => {
     const u = new URL(req.url, 'http://x');
     hits.push(u.pathname + u.search);
     res.setHeader('content-type', 'application/json');
-    const pages = { '/a': A, '/b': B }[u.pathname];
+    const pages = { '/a': A, '/b': B, '/empty': EMPTY }[u.pathname];
     if (!pages) { res.statusCode = 500; return res.end('{}'); }
     const pg = Number(u.searchParams.get('pg')) || 1;
     res.end(JSON.stringify({ code: 1, page: pg, pagecount: pages.length, limit: 20, total: pages.flat().length, list: pages[pg - 1] || [] }));
@@ -47,6 +50,7 @@ before(async () => {
 });
 after(() => {
   latest._setDeps(null);
+  _setAllowPrivate(false);
   srv.closeAllConnections?.(); srv.close();
   try { db().close(); } catch { /* 已关 */ }
   rmSync(home, { recursive: true, force: true });
@@ -106,6 +110,15 @@ test('collectLatest：所有站都没回应 -> 抛错（不缓存成空）', asy
   await assert.rejects(latest.collectLatest());
   useSites([]);
   await assert.rejects(latest.collectLatest());
+});
+
+test('三排全空：抛错且不缓存（不让首页空 30 分钟）', async () => {
+  useSites([{ id: 3, api: `${base}/empty`, fail_streak: 0 }]);
+  await assert.rejects(latest.collectLatest(), /为空/);
+  await assert.rejects(latest.latestRows());
+  const n = hits.length;
+  await assert.rejects(latest.latestRows());
+  assert.ok(hits.length > n); // 第二次仍去请求资源站，没有缓存空结果
 });
 
 test('latestRows：缓存 30 分钟（第二次不再请求资源站）', async () => {

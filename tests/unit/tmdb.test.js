@@ -160,6 +160,11 @@ test('isActingCredit', () => {
     assert.equal(ok({ name: 'x', character: c }), false, c);
   for (const t of ['The 95th Academy Awards', 'Golden Globe Awards', '第 42 届香港电影金像奖颁奖典礼', '2024 春节联欢晚会'])
     assert.equal(ok({ name: t, character: '' }), false, t);
+  // 不误伤：角色名以 Host 开头的角色、片名带「典礼 / Awards」但 TMDB 标了类型的正经作品
+  assert.equal(ok({ name: 'x', character: 'Host Club Girl' }), true);
+  assert.equal(ok({ name: 'x', character: 'Host - Season 2' }), false);
+  assert.equal(ok({ name: '婚礼典礼', character: '新郎', genre_ids: [18, 35] }), true);
+  assert.equal(ok({ title: 'The Awards Night', character: 'Jane', genre_ids: [18] }), true);
   // 角色名就是本人名字（含别名）= 本人出镜
   assert.equal(tmdb.isActingCredit({ name: 'x', character: 'Yoo Jae Suk' }, ['Yoo Jae-suk']), false);
   assert.equal(tmdb.isActingCredit({ name: 'x', character: 'Yoo Jae Suk' }, ['Someone Else']), true);

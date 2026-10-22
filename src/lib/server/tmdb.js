@@ -82,7 +82,8 @@ export async function searchPerson(q) {
 
 const NON_DRAMA_GENRES = new Set([10767, 10764, 10763]); // Talk / Reality / News
 // 「Self」「Herself - Nominee」「Self (archive footage)」「Host」「本人」；角色名里带 self 的（「Young Self」）不误伤
-const SELF_CHARACTER = /^\s*(?:self|himself|herself|themselves|themself|host|presenter)\b|\((?:self|himself|herself)\)|\bas (?:himself|herself)\b|^\s*(?:本人|自己|他自己|她自己|主持人?|嘉宾)/i;
+// host / presenter 只认单独成词或后面跟「- ( /」的（「Host Club Girl」这类角色名不误伤）
+const SELF_CHARACTER = /^\s*(?:self|himself|herself|themselves|themself)\b|^\s*(?:host|presenter)s?\s*(?:$|[-–(/,])|\((?:self|himself|herself)\)|\bas (?:himself|herself)\b|^\s*(?:本人|自己|他自己|她自己|主持人?|嘉宾)/i;
 const AWARD_TITLE = /颁奖|典礼|晚会|春晚|金像奖|金马奖|金钟奖|金鸡奖|百花奖|飞天奖|白玉兰奖|百想|\bawards?\b|\boscars?\b|golden globes?|\bemmys?\b|\bgala\b|ceremony/i;
 
 /** 比较人名用：去空白 / 标点 / 连字符，小写（「Yoo Jae-suk」=「Yoo Jae Suk」） */
@@ -100,6 +101,8 @@ export function isActingCredit(r, selfNames = []) {
   if (SELF_CHARACTER.test(ch)) return false;
   const ck = nameKey(ch);
   if (ck && [...selfNames].some((n) => nameKey(n) === ck)) return false;
+  // 片名像颁奖礼 / 晚会：只在 TMDB 没给类型时才据此丢（片名带「典礼」的正经剧 / 电影有类型，不误伤）
+  if ((r.genre_ids || []).length) return true;
   const titles = [r.name, r.title, r.original_name, r.original_title].filter(Boolean).join(' ');
   return !AWARD_TITLE.test(titles);
 }
