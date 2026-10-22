@@ -52,6 +52,7 @@ export function normalizeVod(raw, siteId) {
     director: String(raw.vod_director ?? '').trim(),
     overview: clean(raw.vod_content ?? raw.vod_blurb),
     remarks: String(raw.vod_remarks ?? '').trim(),
+    time: String(raw.vod_time ?? '').trim(), // 资源站的更新时间「YYYY-MM-DD HH:mm:ss」，只用来排「最近更新」
     lines: parsePlay(raw.vod_play_from, raw.vod_play_url),
   };
 }

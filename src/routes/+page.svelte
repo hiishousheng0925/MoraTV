@@ -1,7 +1,7 @@
 <script>
   /**
-   * 首页：大搜索框（自动聚焦）→ 继续观看 → 想看 → 推荐若干排（需要 TMDB key，流式加载）。
-   * 推荐卡片进入视口后懒查片源可用性，没片源的变灰加角标。
+   * 首页：大搜索框（自动聚焦）→ 继续观看 → 想看 → 推荐若干排（TMDB，需要 key）→ 最近更新（资源站，不需要 key）。都是流式加载。
+   * TMDB 推荐卡片进入视口后懒查片源可用性，没片源的变灰加角标；最近更新的卡片本身就来自资源站，不用查。
    */
   import Page from '$lib/ui/Page.svelte';
   import Section from '$lib/ui/Section.svelte';
@@ -20,8 +20,8 @@
   })));
   const favs = $derived(data.favs.map((f) => toCard({ key: f.key, ...f.title })));
 
-  /** 推荐排的卡片：可用性查到 false 时变灰 */
-  const cards = (items) => items.map((w) => toCard({ ...w, available: avail.of(w.key) }));
+  /** 推荐排的卡片：可用性查到 false 时变灰；最近更新的带更新备注（「更新至第 N 集」） */
+  const cards = (items) => items.map((w) => toCard({ ...w, available: w.available ?? avail.of(w.key) }, w.sub ? { sub: w.sub } : {}));
 
   // 推荐排有失败的：整个页面生命周期里只 toast 一次（invalidate 后 data 变了也不再弹）
   let warned = false;
