@@ -102,7 +102,7 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 ## 片名匹配（`src/lib/server/search/`，0.1.2 起）
 
 - `normalize.js`：`normRoman(s)`（Ⅰ–Ⅻ / 中文片名里的 II、III → 阿拉伯数字）**已并进 `normTitle` / `seasonOf`**；`stripPartSubtitle(s)`（「片名N：副标题」「片名之副标题」「HIStory3-圈套」→ `{base, part}`）是**单独导出**，不并进 `normTitle`——电影「无间道3：终极无间」是独立作品，只有剧集匹配才拆；`regionsOfArea(area)` 返回 vod_area 里的全部地区。
-- `aggregate.js` 的匹配规则写在文件头注释里（搜索聚类和 `findSources` 共用）：地区只在年份对不上时才拒；剧集 ↔ 电影形态冲突只在没有形态相符条目时按同名同年兜底；电影比「规范名 + 续集号」，年份差 1 要演员有交集；片名带「（动画版）」「[解说]」的条目直接丢。`findSources` 搜主名 + 原名 + 全部中文别名（`tmdb.details` 把 translations 的 zh 译名排在别名最前），最多 6 个词，同词 10 分钟内复用。
+- `aggregate.js` 的匹配规则写在文件头注释里（搜索聚类和 `findSources` 共用）：地区只在年份对不上时才拒；剧集 ↔ 电影形态冲突只在没有形态相符条目时按同名同年兜底；电影比「规范名 + 续集号」，年份差 1 要演员有交集；片名带「（动画版）」「[解说]」的条目直接丢。判定本身是 `acceptSources(work, vods, season?)`：`findSources`、搜索结果里 TMDB 作品的片源、`rememberSearch` 三处共用，**搜索卡片的片源不能比详情页多**（有回归测试）。`findSources` 搜主名 + 原名 + 全部中文别名（`tmdb.details` 把 translations 的 zh 译名排在别名最前），最多 6 个词，同词 10 分钟内复用。
 - 回归用例：`tests/fixtures/match-regression.json`（条目池取自真实资源站），改匹配逻辑先跑它。
 - `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
 - 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。
