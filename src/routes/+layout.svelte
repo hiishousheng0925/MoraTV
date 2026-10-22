@@ -19,7 +19,7 @@
     if (updated.current && !willUnload && to?.url) location.href = to.url.href;
   });
 
-  // 顶栏搜索入口：回车跳 /search?q=…（搜索页本身在后续任务里做）
+  // 顶栏搜索入口：回车跳 /search?q=…。首页和搜索页有自己的大搜索框，顶栏这个藏掉
   let q = $state('');
   let input = $state(null);
   $effect(() => { q = page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : ''; });
@@ -30,8 +30,12 @@
     input?.blur();
     goto(`/search?q=${encodeURIComponent(v)}`);
   }
+  const ownBox = $derived(page.url.pathname === '/' || page.url.pathname === '/search');
+  /** 当前该聚焦的搜索框：首页 / 搜索页是正文里的大搜索框 */
+  const box = () => (ownBox ? document.querySelector('main input[name=q]') : input);
   // Ctrl+K 或 / 聚焦搜索框（正在输入时不拦 /）
   function onkey(e) {
+    const input = box();
     const typing = e.target?.closest?.('input, textarea, select, [contenteditable]');
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); input?.focus(); input?.select(); }
     else if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); input?.focus(); }
@@ -74,7 +78,7 @@
   </nav>
 
   <div class="ml-auto flex shrink-0 items-center gap-2">
-    <form role="search" onsubmit={submit} class="relative">
+    <form role="search" onsubmit={submit} class="relative {ownBox ? 'hidden' : ''}">
       <MagnifyingGlass size={16} weight="bold" aria-hidden="true"
                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
       <input bind:this={input} bind:value={q} placeholder="搜索片名 / 演员 / 剧情" aria-label="搜索"
