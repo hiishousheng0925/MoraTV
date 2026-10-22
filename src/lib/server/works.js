@@ -143,9 +143,11 @@ const searchKey = (key) => `srch:${MATCH_V}:${key}`;
 /**
  * 某作品（某一季）的片源，缓存 30 分钟（空结果只缓存 10 分钟）。
  * 片名搜索刚给这部作品找到的片源（rememberSearch）也并进来，按季筛：「搜索说有、详情说没有」不再发生。
+ * link：用户打开了这部作品（详情 / 播放页的 /api/sources）时才传 true，顺带登记 cms 别名（见 linkAliases）；
+ * 首页可用性预查等后台调用不登记。
  * @returns {Promise<any[]>}
  */
-export async function sourcesFor(work, season) {
+export async function sourcesFor(work, season, { link = false } = {}) {
   const s = seasonParam(work, season);
   const isMovie = work.type === 'movie' || work.kind === 'movie';
   const fromSearch = (peekCache(searchKey(work.key)) || []).filter((v) => s == null || seasonOfVod(v, isMovie) === s);
@@ -164,13 +166,15 @@ export async function sourcesFor(work, season) {
   }
   const seen = new Set();
   const merged = [...(list || []), ...fromSearch].filter((v) => !seen.has(vk(v)) && seen.add(vk(v)));
-  linkAliases(work, merged);
+  if (link) linkAliases(work, merged);
   return decorate(merged);
 }
 
 /**
  * TMDB 作品的片源 = 已通过匹配判定的资源站条目：把它们的 cms-<站>-<id> 登记成该作品的别名，
- * 没填 TMDB key 时看过的记录（cms key 下）就并到 TMDB 作品名下。多季剧按条目自己的季号登记，认不出季的不登记（会串季）。
+ * 没填 TMDB key 时看过的记录（cms key 下）就并到 TMDB 作品名下。只在用户打开作品时调用（sourcesFor 的 link），
+ * 而且 registerAlias 只登记 cms key 下真有片库记录的（没东西可并的别名只有重定向的风险）。
+ * 多季剧按条目自己的季号登记（seasonOfVod 认不出季时按第 1 季）；单季 / 电影不带季号。
  * 本站自己的详情条目（work.vod）不在这里：它是 cms 作品本身。
  */
 function linkAliases(work, vods) {
@@ -306,7 +310,6 @@ export function rememberSearch(works) {
       // TMDB 作品：只记通过片源判定（和 findSources 同一套）的条目，搜索路径万一混进别的作品也带不进详情页
       const sources = /^(tv|movie)-/.test(w.key) ? acceptSources(w, w.sources || []) : (w.sources || []);
       if (!sources.length) continue;
-      if (/^(tv|movie)-/.test(w.key)) linkAliases(w, sources);
       const slim = sources.map((v) => ({ siteId: v.siteId, vodId: v.vodId, name: v.name, year: v.year ?? null, remarks: v.remarks || '', lines: v.lines }));
       putCache(searchKey(w.key), slim, SRC_TTL);
       putCache(availKey(w.key), { ok: true }, AVAIL_TTL);

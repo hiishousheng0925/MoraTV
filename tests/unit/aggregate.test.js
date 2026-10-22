@@ -513,3 +513,65 @@ test('资源站作品的显示名去掉版本后缀和 $ 串；原名留在 rawN
   const found = await agg.findSources({ name: q.name, rawName: raw, originalName: '', year: 2024, region: 'cn', type: 'tv', kind: 'short' });
   assert.deepEqual(found.map((v) => v.vodId), ['7']);
 });
+
+test('动画（TMDB genre 16）不出卡片：哪吒之魔童闹海有资源站片源（动作片类目）也不出，它的聚类也不退回成 cms 卡片', async () => {
+  const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
+  deps({ '哪吒之魔童闹海': [
+    m({ siteId: 1, vodId: '1', name: '哪吒之魔童闹海', year: 2025 }),
+    m({ siteId: 2, vodId: '2', name: '哪吒之魔童闹海', year: 2025 }),
+  ] }, { multi: [
+    tm({ type: 'movie', id: 980477, name: '哪吒之魔童闹海', originalName: '哪吒之魔童闹海', year: 2025, region: 'CN', popularity: 80, genreIds: [16, 28, 14, 12] }),
+  ] });
+  const works = await agg.searchTitles('哪吒之魔童闹海');
+  assert.deepEqual(works, []);
+  assert.ok(!calls.searchAll.some((t) => t !== '哪吒之魔童闹海' && t !== '哪吒之魔童鬧海'), `不为动画做二轮搜索：${calls.searchAll}`);
+});
+
+test('动画不出卡片，同名真人作品照常出', async () => {
+  deps({ '斗罗大陆': [
+    vod({ siteId: 1, vodId: '1', name: '斗罗大陆', year: 2018, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' } }),
+    vod({ siteId: 1, vodId: '2', name: '斗罗大陆', year: 2021, area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' } }),
+  ] }, { multi: [
+    tm({ id: 76572, name: '斗罗大陆', year: 2018, region: 'CN', popularity: 60, genreIds: [16, 10759] }),
+    tm({ id: 108545, name: '斗罗大陆', year: 2021, region: 'CN', popularity: 20, genreIds: [18] }),
+  ] });
+  const works = await agg.searchTitles('斗罗大陆');
+  assert.deepEqual(works.map((w) => w.key), ['tv-108545']);
+  assert.deepEqual(works[0].sources.map((v) => v.vodId), ['2']);
+});
+
+test('演员作品去掉动画（searchActor / searchActorQuick / 入口卡部数）', async () => {
+  const credits = [
+    tm({ id: 11, name: '花千骨', year: 2015, region: 'CN', popularity: 10, genreIds: [18] }),
+    tm({ id: 13, name: '某动画', year: 2020, region: 'CN', popularity: 30, genreIds: [16] }),
+    tm({ id: 14, type: 'movie', name: '某动画电影', year: 2021, region: 'CN', popularity: 30, genreIds: [16, 28] }),
+  ];
+  const persons = [{ id: 1, name: '赵丽颖', originalName: '赵丽颖', popularity: 9, profile: null, works: [] }];
+  deps({}, { persons, credits });
+  assert.deepEqual((await agg.searchActor('赵丽颖')).works.map((w) => w.key), ['tv-11']);
+  assert.deepEqual((await agg.searchActorQuick('赵丽颖')).works.map((w) => w.key), ['tv-11']);
+  assert.equal((await agg.findActorEntry('赵丽颖')).workCount, 1);
+});
+
+test('片名搜索用 quick 模式；不完整的 quick 结果不复用，也不给 findSources 用', async () => {
+  const opts = [];
+  let answered = 7;
+  const v = vod({ siteId: 1, vodId: '5', name: '繁花', year: 2023, category: { kind: 'tv', region: 'cn' } });
+  agg._setDeps({ searchAll: async (kw, o) => { opts.push(!!o?.quick); return Object.assign(kw === '繁花' ? [v] : [], { answered, total: 9 }); }, tmdb: { hasKey: () => false } });
+  await agg.searchTitles('繁花');
+  assert.ok(opts.length && opts.every(Boolean), '片名搜索全走 quick');
+  const n = opts.length;
+  await agg.searchTitles('繁花');
+  assert.equal(opts.length, 2 * n, '不完整：下次重搜');
+  await agg.findSources({ name: '繁花', year: 2023, type: 'tv' });
+  assert.ok(opts.slice(2 * n).length > 0 && opts.slice(2 * n).every((q) => !q), 'findSources 等齐、不拿 quick 的结果');
+  // quick 碰巧等齐了：完整结果两种模式都复用
+  answered = 9;
+  agg._setDeps({ searchAll: async (kw, o) => { opts.push(!!o?.quick); return Object.assign(kw === '繁花' ? [v] : [], { answered, total: 9 }); }, tmdb: { hasKey: () => false } });
+  opts.length = 0;
+  await agg.searchTitles('繁花');
+  const m = opts.length;
+  await agg.searchTitles('繁花');
+  await agg.findSources({ name: '繁花', year: 2023, type: 'tv' });
+  assert.equal(opts.length, m, '完整的 quick 结果被复用（片名搜索和 findSources 都不再搜）');
+});

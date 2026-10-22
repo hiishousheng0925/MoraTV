@@ -55,6 +55,12 @@ const KANA_HANGUL = /[぀-ヿ가-힯]/;
 // 片名里的注记说明它不是正片 / 不是真人剧（「苍兰诀（动画版）」挂在国产剧类目下）
 const NOT_DRAMA_NAME = /[(（[【][^)）\]】]*(?:动画|动漫|漫画|漫剧|解说|预告)[^)）\]】]*[)）\]】]|(?:动画|动漫|漫画)版$/;
 
+/** TMDB 动画（genre 16，tmdb.EXCLUDE_GENRES 的第一项）：任何列表都不出（片名搜索、演员作品） */
+const ANIMATION = tmdbApi.EXCLUDE_GENRES[0];
+const isAnimation = (t) => (t?.genreIds || []).includes(ANIMATION);
+/** 演员作品列表要的条目：剧集 / 电影，不是动画 */
+const actingWork = (t) => (t.type === 'tv' || t.type === 'movie') && !isAnimation(t);
+
 const epCount = (v) => Math.max(0, ...v.lines.map((l) => l.episodes.length));
 const usable = (v) => v && v.category?.kind !== 'drop' && Array.isArray(v.lines) && v.lines.length > 0 && !NOT_DRAMA_NAME.test(toSimplified(v.name));
 const vodRegion = (v) => {
@@ -87,17 +93,29 @@ const isSeries = (k) => k !== 'movie';
 /** 比较演员用：繁转简、去间隔号 / 空白，小写 */
 const actorKey = (s) => toSimplified(String(s || '')).replace(/[\s·•．.\-]/g, '').toLowerCase();
 
-/** 一个关键词搜所有站（全局限并发；同一站点配置下 10 分钟内同词复用；有站没回应的结果不复用） */
-function searchTerm(t) {
+/**
+ * 一个关键词搜所有站（全局限并发；同一站点配置下 10 分钟内同词复用；有站没回应的结果不复用）。
+ * quick（片名搜索）：searchAll 不等最慢的两个站（见 sites.js）。完整的结果（所有站都答了）两种模式共用；
+ * quick 的不完整结果只在进行中给同词的 quick 调用共用，做完就丢；等齐模式（findSources）不拿 quick 的结果。
+ */
+function searchTerm(t, quick = false) {
   const now = Date.now();
-  const key = `${deps.sitesVersion?.() ?? 0}|${t}`;
+  const full = `${deps.sitesVersion?.() ?? 0}|${t}`;
+  const fullHit = termMemo.get(full);
+  if (fullHit && now - fullHit.at < TERM_TTL_MS && (!quick || fullHit.done)) return fullHit.p;
+  const key = quick ? `q|${full}` : full;
   const hit = termMemo.get(key);
   if (hit && now - hit.at < TERM_TTL_MS) return hit.p;
-  const p = termLimit(() => deps.searchAll(t)).catch(() => Object.assign([], { answered: 0 }));
-  termMemo.set(key, { at: now, p });
+  const p = termLimit(() => (quick ? deps.searchAll(t, { quick: true }) : deps.searchAll(t))).catch(() => Object.assign([], { answered: 0 }));
+  const entry = { at: now, p, done: false };
+  termMemo.set(key, entry);
   p.then((l) => {
+    entry.done = true;
     const partial = l.answered === 0 || (l.total != null && l.answered < l.total);
-    if (partial && termMemo.get(key)?.p === p) termMemo.delete(key);
+    if (termMemo.get(key)?.p === p && (partial || quick)) termMemo.delete(key);
+    // quick 碰巧等齐了：当完整结果存起来（没有进行中的等齐搜索时）
+    const f = termMemo.get(full);
+    if (quick && !partial && (!f || (f.done && Date.now() - f.at >= TERM_TTL_MS))) termMemo.set(full, { at: now, p, done: true });
   });
   if (termMemo.size > TERM_MEMO_MAX) {
     for (const [k, v] of termMemo) if (now - v.at >= TERM_TTL_MS || termMemo.size > TERM_MEMO_MAX) termMemo.delete(k); else break;
@@ -109,8 +127,8 @@ function searchTerm(t) {
  * 多个关键词搜所有站点，按 (siteId, vodId) 去重并滤掉不可用条目（返回的是副本，可以随意打标记）。
  * 返回的数组带 anyAnswered：至少有一个站正常回应过（searchAll 不报 answered 时按「回应了」算）。
  */
-async function searchTerms(terms, seen = new Set()) {
-  const lists = await Promise.all(terms.map(searchTerm));
+async function searchTerms(terms, seen = new Set(), { quick = false } = {}) {
+  const lists = await Promise.all(terms.map((t) => searchTerm(t, quick)));
   const out = [];
   out.anyAnswered = lists.some((l) => l.answered == null || l.answered > 0);
   for (const v of lists.flat()) {
@@ -393,7 +411,8 @@ export async function searchTitles(q) {
   const nq = normTitle(query);
   const terms = variants(query);
   const seen = new Set();
-  const [round1, items] = await Promise.all([searchTerms(terms, seen), tmdbCandidates(query, nq)]);
+  // 片名搜索不等最慢的两个站（quick，见 searchTerm）；详情页的 findSources 照旧等齐
+  const [round1, items] = await Promise.all([searchTerms(terms, seen, { quick: true }), tmdbCandidates(query, nq)]);
   round1.forEach((v) => { v._round = 1; });
   let vods = round1;
 
@@ -425,7 +444,7 @@ export async function searchTitles(q) {
   assign();
 
   // 二轮：TMDB 有但资源站没对上的，用中文名 / 原名 / 别名再搜
-  const missing = relevant.filter((t) => !matched.has(keyOf(t)));
+  const missing = relevant.filter((t) => !matched.has(keyOf(t)) && !isAnimation(t)); // 动画反正不出卡片，不为它再搜
   if (missing.length) {
     const searched = new Set(terms.map((t) => t.toLowerCase()));
     const extra = [];
@@ -438,7 +457,7 @@ export async function searchTitles(q) {
         extra.push(s);
       }
     }
-    const round2 = await searchTerms(extra.slice(0, ROUND2_TERMS), seen);
+    const round2 = await searchTerms(extra.slice(0, ROUND2_TERMS), seen, { quick: true });
     if (round2.length) {
       round2.forEach((v) => { v._round = 2; });
       vods = [...vods, ...round2];
@@ -466,6 +485,8 @@ export async function searchTitles(q) {
   for (const t of relevant) {
     const k = keyOf(t);
     const cs = matched.get(k) || [];
+    // 动画（TMDB genre 16）：照样认领它的资源站聚类（资源站常把动画电影放进「动作片」类目，不认领就会退回成 cms 卡片），但不出卡片
+    if (isAnimation(t)) continue;
     const cand = [...cs.flatMap((c) => c.vods), ...(extra.get(k) || [])];
     // 和详情页用同一套判定：搜索卡片上的片源不能比详情页多（网飞《三体》不进腾讯版）
     const ok = new Set(acceptSources(tmdbWork(t, cand), cand));
@@ -606,7 +627,7 @@ export async function searchActor(q, { personId } = {}) {
   if (!persons.length) return { persons: [], works: [] };
   const who = persons.find((p) => p.id === personId) || persons[0];
   const credits = (await safe(tmdb.personCredits(who.id), []))
-    .filter((t) => t.type === 'tv' || t.type === 'movie')
+    .filter(actingWork)
     .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
     .slice(0, ACTOR_WORKS);
   const limit = pLimit(ACTOR_CONCURRENCY);
@@ -655,7 +676,7 @@ export async function findActorEntry(q) {
   if (!p) return null;
   const credits = await safe(tmdb.personCredits(p.id), []);
   // 入口卡写的是点进去能看到的部数：演员页最多列 ACTOR_WORKS 部
-  const workCount = Math.min(ACTOR_WORKS, credits.filter((t) => t.type === 'tv' || t.type === 'movie').length);
+  const workCount = Math.min(ACTOR_WORKS, credits.filter(actingWork).length);
   if (!workCount) return null;
   return { id: p.id, name: p.name, profile: p.profile || null, popularity: p.popularity || 0, workCount };
 }
@@ -682,7 +703,7 @@ export async function searchActorQuick(q, { personId } = {}) {
   if (!persons.length) return { persons: [], works: [] };
   const who = persons.find((p) => p.id === personId) || persons[0];
   const works = (await safe(tmdb.personCredits(who.id), []))
-    .filter((t) => t.type === 'tv' || t.type === 'movie')
+    .filter(actingWork)
     .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
     .slice(0, ACTOR_WORKS)
     .map((t) => ({ ...workFromTmdb(t, []), available: null }))

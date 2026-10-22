@@ -166,7 +166,21 @@ test('迁移：已有数据的 v1 库升到 v2 后数据不丢、重复迁移幂
   d.close();
 });
 
+test('registerAlias：cms key 下没有任何片库记录时不登记（没东西可并，只会带来重定向）', () => {
+  assert.equal(lib.registerAlias('cms-5-1', 'tv-95'), false);
+  assert.equal(lib.resolveKey('cms-5-1'), 'cms-5-1');
+  assert.equal(db().prepare("SELECT COUNT(*) AS n FROM key_alias WHERE alias = 'cms-5-1'").get().n, 0);
+  // 任一种记录都算：想看 / 线路偏好
+  lib.toggleFavorite('cms-5-2');
+  assert.equal(lib.registerAlias('cms-5-2', 'tv-96'), true);
+  lib.setLinePref('cms-5-3', 5, 'm3u8');
+  assert.equal(lib.registerAlias('cms-5-3', 'tv-97'), true);
+  assert.deepEqual(lib.getLinePref('tv-97'), { siteId: 5, line: 'm3u8' });
+});
+
 test('cms 页面重定向的查询串：多季别名把 ?s= 改成登记的季，集号不动；无季别名原样', () => {
+  lib.toggleFavorite('cms-4-1');
+  lib.toggleFavorite('cms-4-2');
   lib.registerAlias('cms-4-1', 'tv-91', 2);
   lib.registerAlias('cms-4-2', 'tv-92');
   assert.equal(lib.aliasRedirectSearch('cms-4-1', '?s=1&e=5'), '?s=2&e=5');

@@ -215,7 +215,7 @@ test('sourcesFor 把通过匹配的 cms 片源登记成别名：cms 下的进度
   setup([list([{ ...vod, vodId: '30' }], true)]);
   const w = { key: 'tv-31', type: 'tv', name: '繁花', seasons: [] };
   lib.saveTitle(w);
-  await works.sourcesFor(w);
+  await works.sourcesFor(w, undefined, { link: true });
   assert.equal(lib.resolveKey('cms-1-30'), 'tv-31');
   assert.equal(lib.getProgress('tv-31').last.position, 321);
   assert.equal(lib.continueList().filter((x) => x.key === 'tv-31' || x.key === 'cms-1-30').length, 1);
@@ -228,11 +228,43 @@ test('多季剧按条目自己的季号登记别名；cms 作品自己的片源�
   const w = { key: 'tv-32', type: 'tv', name: '某剧', seasons: [{ season: 1 }, { season: 2 }] };
   lib.saveTitle(w);
   lib.saveProgress({ key: 'cms-1-20', season: 1, episode: 1, position: 10, duration: 100 });
-  await works.sourcesFor(w, 2);
+  await works.sourcesFor(w, 2, { link: true });
   assert.equal(lib.getProgress('tv-32').episodes[0].season, 2);
 
   const v3 = { ...vod, vodId: '21' };
   setup([list([], true)]);
-  await works.sourcesFor({ key: 'cms-1-21', type: 'tv', name: '繁花', seasons: [], vod: v3 });
+  await works.sourcesFor({ key: 'cms-1-21', type: 'tv', name: '繁花', seasons: [], vod: v3 }, undefined, { link: true });
   assert.equal(lib.resolveKey('cms-1-21'), 'cms-1-21');
+});
+
+test('别名只在用户打开作品时登记：搜索（rememberSearch）和首页可用性预查不登记，即使 cms key 下有进度', async () => {
+  const lib = await import('../../src/lib/server/library.js');
+  const aliasRows = () => db().prepare('SELECT COUNT(*) AS n FROM key_alias').get().n;
+  const before = aliasRows();
+  lib.saveProgress({ key: 'cms-1-40', season: 1, episode: 1, position: 50, duration: 2700 });
+  const v = { ...vod, vodId: '40', year: 2023 };
+  // 搜索
+  works.rememberSearch([{ key: 'tv-41', type: 'tv', kind: 'tv', name: '繁花', year: 2023, tmdb: { alternativeTitles: [] }, sources: [v], available: true }]);
+  assert.equal(aliasRows(), before, '搜索不登记');
+  // 首页后台可用性预查（走 sourcesFor，不带 link）
+  setup([list([v], true)]);
+  assert.equal(await works.availability('tv-42'), true);
+  assert.equal(aliasRows(), before, '可用性预查不登记');
+  assert.equal(lib.resolveKey('cms-1-40'), 'cms-1-40');
+});
+
+test('打开详情：只登记 cms key 下有片库记录的那条别名，其余片源不登记', async () => {
+  const lib = await import('../../src/lib/server/library.js');
+  const rows = () => db().prepare("SELECT alias, key FROM key_alias WHERE key = 'tv-43'").all().map((r) => ({ ...r }));
+  lib.saveProgress({ key: 'cms-1-50', season: 1, episode: 3, position: 99, duration: 2700 });
+  const a = { ...vod, vodId: '50' };
+  const b = { ...vod, vodId: '51' };
+  const c = { ...vod, siteId: 1, vodId: '52' };
+  setup([list([a, b, c], true)]);
+  const w = { key: 'tv-43', type: 'tv', name: '繁花', seasons: [] };
+  lib.saveTitle(w);
+  await works.sourcesFor(w, undefined, { link: true });
+  assert.deepEqual(rows(), [{ alias: 'cms-1-50', key: 'tv-43' }]);
+  assert.equal(lib.getProgress('tv-43').last.position, 99);
+  assert.equal(lib.resolveKey('cms-1-51'), 'cms-1-51');
 });

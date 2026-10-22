@@ -144,3 +144,35 @@ test('searchAll：第 1 页满页且不止一页时再取第 2 页（不取第 3
     assert.deepEqual(pages.sort(), [1, 2]);
   } finally { srv2.closeAllConnections?.(); srv2.close(); }
 });
+
+test('searchAll quick：不等最慢的站（够 total−2 个站再等 500ms 就返回），没做完的站不算 answered；第 2 页也受这个时限', async () => {
+  const srv3 = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    const pg = Number(u.searchParams.get('pg') || 1);
+    const name = u.pathname.split('/')[1];
+    const body = (n) => JSON.stringify({ code: 1, page: pg, pagecount: n > 1 ? 2 : 1, limit: '1', total: n, list: [{ vod_id: pg, vod_name: `繁花${name}${pg}`, type_name: '国产剧', vod_play_from: 'm3u8', vod_play_url: '第1集$https://a/1.m3u8' }] });
+    res.setHeader('content-type', 'application/json');
+    if (name === 'slow') return void setTimeout(() => res.end(body(1)), 2500);
+    if (name === 'slowp2') return pg === 1 ? res.end(body(2)) : void setTimeout(() => res.end(body(2)), 2500);
+    res.end(body(1));
+  });
+  await new Promise((r) => srv3.listen(0, '127.0.0.1', r));
+  const port = srv3.address().port;
+  try {
+    for (const s of sites.listSites()) sites.updateSite(s.id, { enabled: 0 });
+    for (const n of ['a', 'b', 'c', 'slow', 'slowp2']) sites.addSite({ name: n, api: `http://127.0.0.1:${port}/${n}/api.php/provide/vod` });
+    let t0 = Date.now();
+    const q = await sites.searchAll('繁花', { quick: true });
+    const quickMs = Date.now() - t0;
+    assert.ok(quickMs < 1500, `quick 用了 ${quickMs}ms`);
+    assert.equal(q.total, 5);
+    assert.equal(q.answered, 3, '慢站和第 2 页没到的站都不算 answered');
+    assert.ok(q.answered < q.total, '不完整（调用方不复用）');
+    assert.deepEqual(q.map((v) => v.name).sort(), ['繁花a1', '繁花b1', '繁花c1', '繁花slowp21'], '第 2 页没到的站带上已到的第 1 页');
+    t0 = Date.now();
+    const full = await sites.searchAll('繁花');
+    assert.ok(Date.now() - t0 >= 2000, '等齐模式要等慢站');
+    assert.equal(full.answered, 5);
+    assert.equal(full.length, 6);
+  } finally { srv3.closeAllConnections?.(); srv3.close(); }
+});

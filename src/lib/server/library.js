@@ -99,15 +99,23 @@ function mergeKeys(from, to, season = null) {
   for (const t of ['progress', 'last_watch', 'favorite', 'line_pref']) d.prepare(`DELETE FROM ${t} WHERE title_key = ?`).run(from);
 }
 
+/** 这个 key 下有没有片库记录（进度 / 最近观看 / 想看 / 线路偏好） */
+function hasLibraryRows(key) {
+  const d = db();
+  return ['progress', 'last_watch', 'favorite', 'line_pref'].some((t) => d.prepare(`SELECT 1 FROM ${t} WHERE title_key = ? LIMIT 1`).get(key));
+}
+
 /**
  * 登记「cms 作品 = TMDB 作品」并把已有的记录并过去。alias 必须是 cms-…，key 必须是 tv-/movie-…；已登记过的不改（先到先得）。
  * season：TMDB 多季剧里该 cms 作品对应的季（并进来时 cms 记录的季号改成它）；单季 / 电影不传。
+ * cms key 下没有任何片库记录（进度 / 最近观看 / 想看 / 线路偏好）时不登记：没东西可并，登记了只会带来永久重定向（误认领时改不回来）。
  * @returns {boolean} 是否发生了新登记
  */
 export function registerAlias(alias, key, season = null) {
   if (!/^cms-\d+-.+$/.test(alias || '') || !/^(tv|movie)-\d+$/.test(key || '')) return false;
   const d = db();
   if (d.prepare('SELECT 1 FROM key_alias WHERE alias = ?').get(alias)) return false;
+  if (!hasLibraryRows(alias)) return false;
   const sn = season == null ? null : Number(season);
   d.exec('BEGIN');
   try {

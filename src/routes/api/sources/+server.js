@@ -14,7 +14,7 @@ export async function GET({ url }) {
   try {
     const work = await getWork(key);
     if (!work) return json({ sources: [], pref: null, error: '作品信息加载失败' }, { status: 404, headers });
-    const sources = await sourcesFor(work, url.searchParams.get('season'));
+    const sources = await sourcesFor(work, url.searchParams.get('season'), { link: true });
     return json({ sources, pref: getLinePref(key) }, { headers });
   } catch (e) {
     console.error('[sources]', e?.message || e);

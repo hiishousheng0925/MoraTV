@@ -111,13 +111,11 @@ export async function blockedMovieIds() {
     const ids = await cached('tmdb:blocked:v1', BLOCK_TTL, async () => {
       const params = { certification_country: 'HK', certification: 'III', with_origin_country: 'HK', include_adult: 'true',
         with_keywords: [...CAT3_KEYWORDS, ...EXCLUDE_KEYWORDS].join('|') };
-      const out = [];
-      for (let page = 1; page <= BLOCK_MAX_PAGES; page++) {
-        const j = await raw('/discover/movie', { ...params, page });
-        out.push(...(j?.results || []).map((r) => r.id));
-        if (!j || page >= (Number(j.total_pages) || 1)) break;
-      }
-      return out;
+      // 先取第 1 页知道总页数，其余页并发取
+      const first = await raw('/discover/movie', { ...params, page: 1 });
+      const pages = Math.min(BLOCK_MAX_PAGES, Number(first?.total_pages) || 1);
+      const rest = await Promise.all(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => raw('/discover/movie', { ...params, page: i + 2 })));
+      return [first, ...rest].flatMap((j) => (j?.results || []).map((r) => r.id));
     });
     return new Set(ids || []);
   } catch (e) {

@@ -106,7 +106,8 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - `aggregate.js` 的匹配规则写在文件头注释里（搜索聚类和 `findSources` 共用）：地区只在年份对不上时才拒；剧集 ↔ 电影形态冲突只在没有形态相符条目时按同名同年兜底；电影比「规范名 + 续集号」，年份差 1 要演员有交集；片名带「（动画版）」「[解说]」的条目直接丢。判定本身是 `acceptSources(work, vods, season?)`：`findSources`、搜索结果里 TMDB 作品的片源、`rememberSearch` 三处共用，**搜索卡片的片源不能比详情页多**（有回归测试）。`findSources` 搜主名 + 原名 + 全部中文别名（`tmdb.details` 把 translations 的 zh 译名排在别名最前），最多 6 个词，同词 10 分钟内复用。
 - 回归用例：`tests/fixtures/match-regression.json`（条目池取自真实资源站），改匹配逻辑先跑它。
 - `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
-- 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。
+- 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。`quick` 模式（**只给片名搜索 `searchTitles` 用**）：除最慢的 2 个站外都做完（含第 2 页）后再等 500 ms 就返回，没做完的站不算 `answered`，结果当不完整、不进关键词复用；`findSources`（详情页 / 可用性）照旧等齐所有站。
+- TMDB 动画（genre 16，`EXCLUDE_GENRES[0]`）在片名搜索里照样认领资源站聚类（资源站常把动画电影放进「动作片」），但不出卡片、不为它做二轮搜索；演员作品 / 入口卡部数也去掉动画。
 
 ## 显示名 / 片源行（0.1.2 起）
 
@@ -131,7 +132,7 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 ## 进度跨 key 合并（0.1.2 起）
 
 - 没填 TMDB key 时看的作品 key 是 `cms-<站>-<id>`，填 key 后同一部变成 `tv-/movie-<id>`。表 `key_alias(alias, key, season)`（迁移第 2 步）记「cms key = TMDB key」。
-- 登记点只有一处：`works.js` 的 `linkAliases`，由 `sourcesFor`（详情 / 播放页 / 可用性）和 `rememberSearch`（搜索）在 TMDB 作品的**已通过匹配判定**的片源上调用 `library.registerAlias`。先到先得，不改已有登记；多季剧按条目自己的季号登记（`season` 列，并过去时 cms 记录的季号改成它），认不出季不会进这里（单季 / 电影不传）。
+- 登记点只有一处：`works.js` 的 `linkAliases`，**只在用户打开作品时**由 `sourcesFor(work, season, { link: true })`（`/api/sources`，详情 / 播放页）在 TMDB 作品的**已通过匹配判定**的片源上调用 `library.registerAlias`；搜索（`rememberSearch`）和首页可用性预查不登记。`registerAlias` 只登记 cms key 下**已有片库记录**（进度 / last_watch / 想看 / 线路偏好）的，没东西可并的不登记（登记是永久的、没有解除，误认领只会带来重定向）。先到先得，不改已有登记；多季剧按条目自己的季号登记（`season` 列，并过去时 cms 记录的季号改成它；认不出季按第 1 季），单季 / 电影不传。
 - `registerAlias` 在事务里把 cms key 的进度 / last_watch / 想看 / 线路偏好并进 TMDB key：同一集留 `updated_at` 较新的，想看留较早的加入时间，线路偏好 TMDB 已有则不动；之后 library 的读写入口（saveProgress / getProgress / favorite / linePref / removeHistory）都先 `resolveKey`，cms 详情 / 播放页 load 里 `resolveKey` 不同就 307 到 TMDB 那份。
 
 ## 浏览页（0.1.2 起）
