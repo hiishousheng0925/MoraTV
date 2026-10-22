@@ -32,6 +32,17 @@ export async function searchSite(site, keyword, { timeoutMs = 8000 } = {}) {
   return toVods(await cmsGet(site, { ac: 'videolist', wd: keyword, pg: 1 }, timeoutMs), site.id);
 }
 
+/**
+ * 最近更新（按更新时间倒序）：`h` = 最近几小时内更新的；`pagesize` 有的站认、有的站忽略（固定 20 条）。
+ * 返回 Vod[]，带 pagecount（站点没正常回 JSON 时为 null）。
+ */
+export async function latestBySite(site, { hours = 72, page = 1, pageSize = 100, timeoutMs = 8000 } = {}) {
+  const j = await cmsGet(site, { ac: 'videolist', h: hours, pg: page, pagesize: pageSize }, timeoutMs);
+  const out = toVods(j, site.id);
+  out.pagecount = j ? Number(j.pagecount) || 1 : null;
+  return out;
+}
+
 /** @param {(string|number)[]} ids */
 export async function detailSite(site, ids, { timeoutMs = 8000 } = {}) {
   if (!ids.length) return [];

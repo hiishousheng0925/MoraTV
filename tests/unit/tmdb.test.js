@@ -58,8 +58,23 @@ before(async () => {
     if (p === '/3/trending/tv/week') return json(res, { results: [{ id: 5, name: 'T', first_air_date: '2024-02-02', origin_country: ['HK'] }] });
     if (p === '/3/trending/all/week') return json(res, { results: [{ media_type: 'tv', id: 5, name: 'T' }, { media_type: 'person', id: 6 }] });
     if (p === '/3/discover/tv') return json(res, { results: [{ id: 8, name: 'D', origin_country: ['HK'] }] });
-    if (p === '/3/person/3/combined_credits') {
-      return json(res, { cast: [{ media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'movie', id: 2, title: 'b', popularity: 9 }] });
+    if (p === '/3/person/3') {
+      return json(res, { name: 'P3', combined_credits: { cast: [{ media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'tv', id: 1, name: 'a', popularity: 1 }, { media_type: 'movie', id: 2, title: 'b', popularity: 9 }] } });
+    }
+    if (p === '/3/person/4') {
+      return json(res, { name: 'Yoo Jae-suk', also_known_as: ['유재석', '刘在石'], combined_credits: { cast: [
+        { media_type: 'tv', id: 41, name: '正经剧', character: '李四', genre_ids: [18], popularity: 5 },
+        { media_type: 'tv', id: 42, name: '某脱口秀', character: 'Guest', genre_ids: [10767], popularity: 50 },
+        { media_type: 'tv', id: 43, name: '跑男', character: '', genre_ids: [10764], popularity: 40 },
+        { media_type: 'tv', id: 44, name: '晚间新闻', character: '', genre_ids: [10763], popularity: 30 },
+        { media_type: 'movie', id: 45, title: '纪录片', character: 'Herself', genre_ids: [99], popularity: 20 },
+        { media_type: 'tv', id: 46, name: '第 60 届金马奖颁奖典礼', character: '', genre_ids: [], popularity: 10 },
+        { media_type: 'tv', id: 47, name: '双重身份剧', character: 'Self - Guest', genre_ids: [18], popularity: 9 },
+        { media_type: 'tv', id: 47, name: '双重身份剧', character: '王五', genre_ids: [18], popularity: 9 },
+        { media_type: 'movie', id: 48, title: '穿越片', character: 'Young Self', genre_ids: [878], popularity: 8 },
+        { media_type: 'tv', id: 49, name: '推理综艺', character: 'Yoo Jae Suk', genre_ids: [35, 9648], popularity: 7 },
+        { media_type: 'tv', id: 50, name: '韩综', character: '유재석', genre_ids: [35], popularity: 6 },
+      ] } });
     }
     return json(res, { results: [] });
   });
@@ -129,6 +144,30 @@ test('details 404 -> null；trending / discover / personCredits', async () => {
   assert.equal(q.sort_by, 'popularity.desc');
   const c = await tmdb.personCredits(3);
   assert.deepEqual(c.map((x) => x.id), [2, 1]);
+});
+
+test('personCredits：去掉综艺 / 脱口秀 / 新闻、本人出镜、颁奖礼；同一部有演戏的那条就留', async () => {
+  const c = await tmdb.personCredits(4);
+  assert.deepEqual(c.map((x) => x.id).sort(), [41, 47, 48]);
+});
+
+test('isActingCredit', () => {
+  const ok = (r) => tmdb.isActingCredit(r);
+  assert.equal(ok({ name: 'x', character: '许三多', genre_ids: [18] }), true);
+  assert.equal(ok({ name: 'x', character: 'Young Self' }), true);
+  for (const g of [10767, 10764, 10763]) assert.equal(ok({ name: 'x', character: 'A', genre_ids: [18, g] }), false);
+  for (const c of ['Self', 'Himself', 'herself - Nominee', 'Self (archive footage)', 'Themselves', 'Host', '本人', '自己', '(himself)'])
+    assert.equal(ok({ name: 'x', character: c }), false, c);
+  for (const t of ['The 95th Academy Awards', 'Golden Globe Awards', '第 42 届香港电影金像奖颁奖典礼', '2024 春节联欢晚会'])
+    assert.equal(ok({ name: t, character: '' }), false, t);
+  // 不误伤：角色名以 Host 开头的角色、片名带「典礼 / Awards」但 TMDB 标了类型的正经作品
+  assert.equal(ok({ name: 'x', character: 'Host Club Girl' }), true);
+  assert.equal(ok({ name: 'x', character: 'Host - Season 2' }), false);
+  assert.equal(ok({ name: '婚礼典礼', character: '新郎', genre_ids: [18, 35] }), true);
+  assert.equal(ok({ title: 'The Awards Night', character: 'Jane', genre_ids: [18] }), true);
+  // 角色名就是本人名字（含别名）= 本人出镜
+  assert.equal(tmdb.isActingCredit({ name: 'x', character: 'Yoo Jae Suk' }, ['Yoo Jae-suk']), false);
+  assert.equal(tmdb.isActingCredit({ name: 'x', character: 'Yoo Jae Suk' }, ['Someone Else']), true);
 });
 
 test('discover：kind / region 映射到出站查询参数', async () => {
