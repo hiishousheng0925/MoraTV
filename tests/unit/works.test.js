@@ -66,6 +66,11 @@ test('genresOfType：资源站类目名只在像题材时才当类型', () => {
   assert.deepEqual(works.genresOfType('动作片'), ['动作']);
   assert.deepEqual(works.genresOfType('古装剧'), ['古装']);
   assert.deepEqual(works.genresOfType(''), []);
+  assert.deepEqual(works.genresOfType('港台综艺'), []);
+  assert.deepEqual(works.genresOfType('国产动漫'), []);
+  assert.deepEqual(works.genresOfType('纪录片'), []);
+  assert.deepEqual(works.genresOfType('美食'), ['美食'], '只看整串，不按单字误伤');
+  assert.deepEqual(works.genresOfType('舞台剧'), ['舞台']);
 });
 
 test('sourcesFor：全部站点没回应时抛 NoSiteAnswered', async () => {

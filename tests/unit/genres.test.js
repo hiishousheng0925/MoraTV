@@ -164,6 +164,14 @@ test('browseSites：有对应类目按 t= 翻页；丢掉动画 / 没 m3u8；cms
   assert.equal(asked.length, 1, '同一页 30 分钟内走缓存');
 });
 
+test('browseSites：cms 卡片显示名去掉版本后缀和 $ 串', async () => {
+  fakeSites([{ id: 1, api: 'http://a/1', fail_streak: 0 }], () => ({ code: 1, total: 2, pagecount: 1, list: [
+    vod(1, '新闻女王粤语版', '香港剧'), vod(2, '庆余年，废物太子$庆余年之大凉太子爷', '香港剧'),
+  ] }));
+  const r = await B.browseSites({ kind: 'tv', region: 'hk', page: 1, src: null });
+  assert.deepEqual(Object.fromEntries(r.items.map((i) => [i.key, i.name])), { 'cms-1-1': '新闻女王', 'cms-1-2': '庆余年，废物太子' });
+});
+
 // 每个类目 40 条：id = 类目*100 + 序号
 const catList = (q) => {
   const name = CATS.find((c) => c.id === q.t).name;

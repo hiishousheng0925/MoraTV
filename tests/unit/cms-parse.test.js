@@ -80,3 +80,10 @@ test('langOf：线路名里的语言词', () => {
   assert.equal(langOf('lzm3u8'), null);
   assert.equal(langOf(''), null);
 });
+
+test('cleanName：中英双语、$ 开头、半角句点', () => {
+  assert.deepEqual(cleanName('某某 中英双语版'), { title: '某某', lang: '双语' });
+  assert.deepEqual(cleanName('$繁花'), { title: '繁花', lang: null });
+  assert.deepEqual(cleanName('V.I.P.'), { title: 'V.I.P.', lang: null });
+  assert.deepEqual(cleanName('繁花。'), { title: '繁花', lang: null });
+});

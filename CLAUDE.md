@@ -111,7 +111,7 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 ## 显示名 / 片源行（0.1.2 起）
 
 - 资源站条目名只在**显示**时清洗：`cms/parse.js` 的 `cleanName(raw) -> {title, lang}`（去 `$` 及其后、末尾「普通话版 / 粤语版 / [沪语版] / 国语刘德华版」→ lang、首尾标点）。vod 的 `name` 永远是原名（匹配、`normTitle` 用它）。资源站作品（聚类 / 详情 / 最近更新）的 `name` 是清洗后的，原名放 `rawName`，`workNames` 把它也算进去，所以匹配不会因为显示名变短而丢片源。
-- `sourcesFor` 的片源带 `title`（显示名）`lang` `weight`，线路带 `lang`（线路名里的语言词）。片源行 = `lines.js candParts`：「站点 · 线路 N」，N 是该条目里 m3u8 线路的序号（资源站给的顺序，稳定），条目显示名和作品名不同才带上，lang 单独做小标签；**线路偏好 line_pref 仍按内部线路名（vod_play_from）记**。
+- `sourcesFor` 的片源带 `title`（显示名）`lang` `weight`，线路带 `lang`（线路名里的语言词）。片源行 = `lines.js candParts`：「站点」，这个站给这部作品两条以上线路时「站点 · 线路 N」（N 按（条目 id，条目里的线路顺序）编号，不随排序 / 偏好变），条目显示名和作品名不同才带上，lang 单独做小标签；**线路偏好 line_pref 仍按内部线路名（vod_play_from）记**。
 - 站点 `weight < 0` 的片源排最后（手动选过的仍排第一）。内置 360资源（画面烧录博彩字幕）缺省 `LOW_WEIGHT`=-10；老库靠迁移第 3 步改（只改 builtin 且仍为 0 的那行）。
 - TMDB：角色名没有汉字就不显示（`zhCharacter`）；zh-CN 下仍是英文的剧集类型按 id 换中文（`genreNames`），资源站类目名只有像题材（「动作片」→ 动作）才当类型。
 

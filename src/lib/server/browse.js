@@ -10,6 +10,7 @@ import { pLimit } from './net.js';
 import { listSites, recordResult } from './cms/sites.js';
 import { cmsGet, toVods, listCategories } from './cms/client.js';
 import { mapCategory } from './cms/categories.js';
+import { cleanName } from './cms/parse.js';
 import { byHealth } from './cms/latest.js';
 import { regionOfArea, regionOfCountry } from './search/normalize.js';
 import { genresFor, genreParams, networkFor, decadeRange, isSort, isDecade } from '../genres.js';
@@ -141,8 +142,9 @@ export function pickCategories(cats, kind, region) {
 /** 每个类目一页出几条：20 的约数（一页里的条目正好落在资源站同一页里），合起来不超过 PER_PAGE；要本地按地区筛的取整页 */
 export const perCategory = (k, localRegion) => (localRegion || k <= 1 ? SITE_PAGE : [10, 5, 4, 2, 1].find((d) => d * k <= PER_PAGE) || 1);
 
+// 显示名去掉版本后缀 / `$` 串（缓存里存的是资源站原始列表，名字每次现洗，不用改缓存键）
 const toItem = (v) => ({
-  key: `cms-${v.siteId}-${v.vodId}`, name: v.name, poster: v.pic || null, year: v.year,
+  key: `cms-${v.siteId}-${v.vodId}`, name: cleanName(v.name).title || v.name, poster: v.pic || null, year: v.year,
   region: regionOfVod(v), kind: v.category.kind, sub: (v.remarks || '').slice(0, 14), available: true,
 });
 

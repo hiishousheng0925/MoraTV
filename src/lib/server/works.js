@@ -64,9 +64,11 @@ function workFromDetails(d, prev) {
  * 资源站类目名当「类型」显示时去掉地区 / 形态部分：「动作片」→ 动作；「国产剧」「香港剧」「大陆综艺」这类纯类目不算类型（信息行已有地区 / 形态）。
  * @param {string} typeName @returns {string[]}
  */
+// 整串（去掉片 / 剧 / 综艺后缀以后）就是地区或形态词才丢；「美食」「英雄」「舞台剧」不误伤
+const TYPE_NOT_GENRE = /^(?:国产|大陆|内地|中国|华语|国语|香港|港台|港澳|港|台湾|台|韩国|韩|日本|日|日韩|欧美|美国|美|英国|英|泰国|泰|海外|外国|电影|电视|连续|综艺|纪录|短|动漫|动画|网络|微)$/;
 export function genresOfType(typeName) {
-  const t = String(typeName || '').trim().replace(/(?:片|剧|剧场|综艺|节目)$/, '');
-  if (!t || /国产|大陆|内地|中国|华语|香港|港|台湾|台|韩|日|欧美|美|英|泰|海外|外国|电影|电视|连续|综艺|纪录|短|动漫|动画/.test(t)) return [];
+  const t = String(typeName || '').trim().replace(/(?:片|剧|剧场|综艺|节目|动漫|动画)$/, '');
+  if (!t || TYPE_NOT_GENRE.test(t)) return [];
   return [t];
 }
 

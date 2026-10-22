@@ -296,7 +296,6 @@ test('findActorEntry：名字完全相同且热度够才给入口；同名取最
   // 代表作 N 部 = 演员页实际列出的部数（最多 24），不是全部作品数
   deps({}, { persons, credits: Array.from({ length: 40 }, (_, i) => tm({ id: 100 + i, type: 'movie', name: `片${i}`, year: 2000 + (i % 20) })) });
   assert.equal((await agg.findActorEntry('刘德华')).workCount, (await agg.searchActorQuick('刘德华')).works.length);
-  deps({}, { persons, credits });
   deps({}, { persons: [persons[0]], credits });
   assert.equal(await agg.findActorEntry('刘德华'), null, '热度太低');
   deps({}, { persons, credits: [] });

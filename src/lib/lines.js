@@ -16,9 +16,19 @@ export function candidates(sources, pref) {
       if (!l.episodes?.length) return;
       list.push({ id: `${s.siteId}:${s.vodId}:${l.name}`, siteId: s.siteId, siteName: s.siteName, latency: s.latency ?? null,
         low: (s.weight ?? 0) < 0, vodName: s.title || s.name, lang: l.lang || s.lang || null,
-        // 线路 N：这一条在该条目线路里的序号（资源站给的顺序，同一来源每次加载都一样）
-        lineNo: k + 1, line: l.name, episodes: l.episodes });
+        vodId: String(s.vodId), lineIdx: k, line: l.name, episodes: l.episodes });
     });
+  }
+  // 线路 N：这个站给这部作品的第几条线路——按（条目 id，条目里的线路顺序）编号，不随片源排序 / 偏好变；
+  // siteLines：这个站一共几条，只有一条时不显示「线路 N」
+  const bySite = new Map();
+  for (const c of list) {
+    if (!bySite.has(c.siteId)) bySite.set(c.siteId, []);
+    bySite.get(c.siteId).push(c);
+  }
+  for (const group of bySite.values()) {
+    [...group].sort((a, b) => a.vodId.localeCompare(b.vodId, 'en', { numeric: true }) || (a.lineIdx - b.lineIdx))
+      .forEach((c, n) => { c.lineNo = n + 1; c.siteLines = group.length; });
   }
   list.sort((a, b) => (a.low - b.low) || (b.episodes.length - a.episodes.length) || ((a.latency ?? 1e9) - (b.latency ?? 1e9)));
   if (pref) {
@@ -31,17 +41,18 @@ export function candidates(sources, pref) {
 const nameKey = (s) => String(s || '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
 
 /**
- * 片源行的显示：「站点 · 线路 N」，条目名（已去版本后缀）和作品名不同时带上，区分同站的不同条目；lang 是「国语 / 粤语」小标签。
- * 不显示 lzm3u8 / jsm3u8 这类线路代号。
+ * 片源行的显示：「站点」；这个站有两条以上线路时「站点 · 线路 N」。条目名（已去版本后缀）和作品名不同时带上，
+ * 区分同站的不同条目；lang 是「国语 / 粤语」小标签。不显示 lzm3u8 / jsm3u8 这类线路代号。
  * @returns {{text: string, lang: string|null}}
  */
 export function candParts(c, workName = '') {
-  const parts = [c.siteName, `线路 ${c.lineNo ?? 1}`];
+  const parts = [c.siteName];
+  if ((c.siteLines ?? 1) > 1) parts.push(`线路 ${c.lineNo}`);
   if (c.vodName && nameKey(c.vodName) !== nameKey(workName)) parts.push(c.vodName);
   return { text: parts.join(' · '), lang: c.lang || null };
 }
 
-/** 纯文本版（播放页线路菜单 / toast）：「站点 · 线路 N · 国语」 */
+/** 纯文本版（播放页线路菜单 / 当前线路 / toast）：「站点 · 线路 N · 国语」 */
 export const candLabel = (c, workName = '') => {
   const p = candParts(c, workName);
   return p.lang ? `${p.text} · ${p.lang}` : p.text;

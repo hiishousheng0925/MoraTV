@@ -38,7 +38,7 @@ export function parsePlay(from, url) {
  * 只放语言类；「导演剪辑版 / 未删减版」是另一种区分，留在名字里。
  */
 const LANG_WORDS = [
-  ['国粤双语', '双语'], ['国粤', '双语'], ['双语', '双语'],
+  ['国粤双语', '双语'], ['中英双语', '双语'], ['国英双语', '双语'], ['粤英双语', '双语'], ['国粤', '双语'], ['双语', '双语'],
   ['普通话', '国语'], ['国语', '国语'], ['國語', '国语'], ['国配', '国语'], ['台配', '国语'],
   ['粤语', '粤语'], ['粵語', '粤语'], ['粤配', '粤语'],
   ['原声', '原声'], ['原聲', '原声'], ['沪语', '沪语'], ['闽南语', '闽南语'],
@@ -49,7 +49,8 @@ const LANG_TAG = Object.fromEntries(LANG_WORDS);
 const LANG_BRACKET = new RegExp(`[\\[(（【]\\s*(${LANG_ALT})\\s*版?\\s*[\\])）】]$`);
 // 末尾的「普通话版」「粤语」「国语刘德华版」（语言词后面最多 4 个字的版本说明，必须以「版」结尾）
 const LANG_TAIL = new RegExp(`(${LANG_ALT})(?:[\\u4e00-\\u9fff]{1,4}版|版)?$`);
-const EDGE_PUNCT = /^[\s\-—–_·・,，.。:：;；|/、]+|[\s\-—–_·・,，.。:：;；|/、]+$/g;
+// 首尾的分隔符；半角句点不算（「V.I.P.」）
+const EDGE_PUNCT = /^[\s\-—–_·・,，。:：;；|/、]+|[\s\-—–_·・,，。:：;；|/、]+$/g;
 const EMPTY_BRACKETS = /[\[(（【]\s*[\])）】]/g;
 
 /**
@@ -59,8 +60,8 @@ const EMPTY_BRACKETS = /[\[(（【]\s*[\])）】]/g;
  */
 export function cleanName(raw) {
   let s = String(raw ?? '');
-  const d = s.indexOf('$');
-  if (d > 0) s = s.slice(0, d);
+  // 取 `$` 前面的那段；以 `$` 开头时取第一段非空的
+  if (s.includes('$')) s = s.split('$').find((x) => x.trim()) ?? '';
   s = s.replace(EMPTY_BRACKETS, '').replace(/\s+/g, ' ').replace(EDGE_PUNCT, '');
   let lang = null;
   for (const re of [LANG_BRACKET, LANG_TAIL]) {

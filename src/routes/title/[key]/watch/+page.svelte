@@ -196,7 +196,7 @@
   </div>
 {/snippet}
 
-<Page full={theater}>
+<Page unbounded={theater}>
   <!-- 剧场模式：外框不限 1280，播放器宽度跟着窗口（按窗口高度封顶，整个画面留在首屏），选集栏移到下面 -->
   <div class={theater ? 'theater mx-auto w-full' : ''} data-layout={theater ? 'theater' : 'normal'}>
   <div class="mb-4 max-sm:hidden">
@@ -234,7 +234,8 @@
 </Page>
 
 <style>
-  /* 16:9 的播放器高度 = 窗口高 - 顶栏 - 页面上边距 - 「详情」返回行 - 一点余量 */
+  /* 16:9 的播放器高度 = 窗口高 - 顶栏 - 5.5rem（Page 的 pt-5 20px + 「详情」返回行约 20px + 它的 mb-4 16px + 底部余量 32px）。
+     返回行或 Page 上边距改了，这里跟着改 */
   .theater { max-width: calc((100dvh - var(--hdr-h, 3.25rem) - 5.5rem) * 16 / 9); }
   .stage { box-shadow: 0 28px 70px -24px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.06); }
   :global(:root[data-theme='light']) .stage { box-shadow: 0 24px 56px -22px rgb(16 20 28 / 0.5), 0 0 0 1px rgb(16 20 28 / 0.06); }

@@ -53,37 +53,37 @@
 
 <Page>
   <div class="home">
-  <div class="home-top mx-auto max-w-2xl pb-2 pt-6 sm:pt-12">
-    <SearchForm autofocus big />
-  </div>
+    <div class="home-top mx-auto max-w-2xl pb-2 pt-6 sm:pt-12">
+      <SearchForm autofocus big />
+    </div>
 
-  {#if cont.length}
-    <Section title="继续观看" action="全部 →" actionHref="/library">
-      <div data-row="continue"><CardGrid items={cont.slice(0, 16)} variant="row" eager /></div>
-    </Section>
-  {/if}
-
-  {#if favs.length}
-    <Section title="想看" action="全部 →" actionHref="/library?tab=fav">
-      <CardGrid items={favs.slice(0, 16)} variant="row" />
-    </Section>
-  {/if}
-
-  {#each rows as r (r.id)}
-    {#await r.items}
-      <Section title={r.title}>
-        <div class="grid grid-cols-3 gap-x-3.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8" aria-hidden="true">
-          {#each Array(8) as _, k (k)}<div class="aspect-2/3 animate-pulse rounded-xl bg-ink-800 {k >= 3 ? 'max-sm:hidden' : ''} {k >= 4 ? 'max-md:hidden' : ''} {k >= 6 ? 'max-lg:hidden' : ''}"></div>{/each}
-        </div>
+    {#if cont.length}
+      <Section title="继续观看" action="全部 →" actionHref="/library">
+        <div data-row="continue"><CardGrid items={cont.slice(0, 16)} variant="row" eager /></div>
       </Section>
-    {:then items}
-      {#if items?.length}
+    {/if}
+
+    {#if favs.length}
+      <Section title="想看" action="全部 →" actionHref="/library?tab=fav">
+        <CardGrid items={favs.slice(0, 16)} variant="row" />
+      </Section>
+    {/if}
+
+    {#each rows as r (r.id)}
+      {#await r.items}
         <Section title={r.title}>
-          <CardGrid items={cards(items)} variant="row" />
+          <div class="grid grid-cols-3 gap-x-3.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8" aria-hidden="true">
+            {#each Array(8) as _, k (k)}<div class="aspect-2/3 animate-pulse rounded-xl bg-ink-800 {k >= 3 ? 'max-sm:hidden' : ''} {k >= 4 ? 'max-md:hidden' : ''} {k >= 6 ? 'max-lg:hidden' : ''}"></div>{/each}
+          </div>
         </Section>
-      {/if}
-    {/await}
-  {/each}
+      {:then items}
+        {#if items?.length}
+          <Section title={r.title}>
+            <CardGrid items={cards(items)} variant="row" />
+          </Section>
+        {/if}
+      {/await}
+    {/each}
   </div>
   <div class="h-6"></div>
 </Page>
