@@ -113,3 +113,9 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - `tmdb.details().name` 是显示名：zh-CN 译名 → 华语原作（original_language zh / cn）用原名 → zh-TW / HK / SG 译名 → 原名。
 - 首页推荐排：`works.js` 的 `recommendRows(rows, {need, min})`。每排拉 2 页候选，按排顺序挑：跨排去重、预查 `availability`（全局并发 6，带优先级：前面的排先查）、没片源的直接移除、名字 / 海报换成详情的，凑不满 `min`（6）张整排返回 `[]`。每排各自一个 promise，页面逐排流式渲染。任何一次预查抛 `NoSiteAnswered` → 之后不再预查、各排按 TMDB 原样返回（`available: null`），`sitesDown` 解析为 true，页面 toast 一次「资源站暂时连不上」；不写负缓存（availability 本身就不缓存这种结果）。其他预查错误当没片源跳过，每种错误 `console.warn` 一次。
 - 首页包了一层 stale-while-revalidate（`home.js` `homeRecommend(defs, candidates, opts)`）：上次算好的各排存在 cache 表 `home:rows:v1`（3 天）；有存货就立刻给数组、后台重算（存货不到 10 分钟不重算；并发打开共用一次），结果经 `data.fresh` 给页面，页面只替换「新旧都有内容」的排（不增删排，不跳）；没存货才走逐排流式。资源站全挂时算出来的不存。「资源站暂时连不上」只在 `sitesDown`（推荐预查或最近更新确实没有站回应，`latest.js` 抛的错带 `noSiteAnswered`）时弹。
+
+## 进度跨 key 合并（0.1.2 起）
+
+- 没填 TMDB key 时看的作品 key 是 `cms-<站>-<id>`，填 key 后同一部变成 `tv-/movie-<id>`。表 `key_alias(alias, key, season)`（迁移第 2 步）记「cms key = TMDB key」。
+- 登记点只有一处：`works.js` 的 `linkAliases`，由 `sourcesFor`（详情 / 播放页 / 可用性）和 `rememberSearch`（搜索）在 TMDB 作品的**已通过匹配判定**的片源上调用 `library.registerAlias`。先到先得，不改已有登记；多季剧按条目自己的季号登记（`season` 列，并过去时 cms 记录的季号改成它），认不出季不会进这里（单季 / 电影不传）。
+- `registerAlias` 在事务里把 cms key 的进度 / last_watch / 想看 / 线路偏好并进 TMDB key：同一集留 `updated_at` 较新的，想看留较早的加入时间，线路偏好 TMDB 已有则不动；之后 library 的读写入口（saveProgress / getProgress / favorite / linePref / removeHistory）都先 `resolveKey`，cms 详情 / 播放页 load 里 `resolveKey` 不同就 307 到 TMDB 那份。
