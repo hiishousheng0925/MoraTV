@@ -70,6 +70,9 @@ function peel(input) {
   return { base: compact, season };
 }
 
+/** 只去空白和标点、保留数字的片名键（区分「流浪地球」和「流浪地球2」） */
+export const rawKey = (s) => String(s || '').replace(/[\s\p{P}]/gu, '').toLowerCase();
+
 /** @param {string} s */
 export function normTitle(s) {
   if (!String(s ?? '').trim()) return '';

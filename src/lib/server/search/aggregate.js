@@ -11,7 +11,7 @@
 import { searchAll as cmsSearchAll } from '../cms/sites.js';
 import * as tmdbApi from '../tmdb.js';
 import { pLimit } from '../net.js';
-import { normTitle, seasonOf, regionOfArea, regionOfCountry } from './normalize.js';
+import { normTitle, rawKey, seasonOf, regionOfArea, regionOfCountry } from './normalize.js';
 import { variants } from './variants.js';
 
 const DEFAULT_DEPS = { searchAll: cmsSearchAll, tmdb: tmdbApi };
@@ -136,9 +136,6 @@ function matchTmdb(c, items) {
   }
   return best;
 }
-
-/** 只去空白和标点、保留数字的片名（区分「流浪地球」和「流浪地球2」） */
-const rawKey = (s) => String(s || '').replace(/[\s\p{P}]/gu, '').toLowerCase();
 
 /** TMDB 的人物搜索不按热度排（同名的无名摄影师可能排第一）：按热度降序，稳定排序 */
 const rankPersons = (list) => [...list].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
@@ -343,7 +340,7 @@ export async function findSources(work, season) {
     if (!regionOk(work.region, vodRegion(v))) return false;
     const vk = v.category?.kind;
     if (isMovie ? vk !== 'movie' && vk !== 'other' : vk === 'movie') return false;
-    const s = seasonOf(v.name) ?? 1;
+    const s = isMovie ? 1 : (seasonOf(v.name) ?? 1); // 电影片名末尾的数字是续集编号，不是季
     if (season != null && s !== season) return false;
     if (work.year == null || v.year == null) return true;
     if (s > 1) return v.year >= work.year - 1;

@@ -11,6 +11,7 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 if (!process.env.MORA_HOME) process.env.MORA_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'moratv-accept-test-'));
 
@@ -18,7 +19,7 @@ const { searchTitles, searchActor, findSources } = await import('../../src/lib/s
 const plot = await import('../../src/lib/server/search/plot.js');
 const { proxyPlaylist } = await import('../../src/lib/server/stream/proxy.js');
 const { filterAds } = await import('../../src/lib/server/stream/adfilter.js');
-const { normTitle } = await import('../../src/lib/server/search/normalize.js');
+const { normTitle, rawKey } = await import('../../src/lib/server/search/normalize.js');
 const { listSites } = await import('../../src/lib/server/cms/sites.js');
 const siteNames = new Map(listSites().map((x) => [x.id, x.name]));
 const siteName = (src) => siteNames.get(src.siteId) || String(src.siteId);
@@ -102,8 +103,6 @@ export async function playCheck(work, { maxLines = 8 } = {}) {
   return { ok: false, attempts, errors };
 }
 
-// 只去空白和标点、保留数字：「流浪地球」不算「流浪地球2」
-const rawKey = (s) => String(s || '').replace(/[\s\p{P}]/gu, '').toLowerCase();
 const titleMatch = (w, name) => !!w && rawKey(w.name) === rawKey(name);
 
 export async function runTitles() {
@@ -263,7 +262,7 @@ export async function runAds(titleNames = ['繁花', '庆余年', '狂飙', '漫
 }
 
 const mode = process.argv[2];
-if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]).replace(/\\/g, '/')) && mode) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && mode) {
   const out = {};
   const want = (m) => mode === 'all' || mode === m;
   if (want('titles')) out.titles = await runTitles();

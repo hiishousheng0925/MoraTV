@@ -261,3 +261,37 @@ test('演员搜索：同名人物按热度排，取最热的那位（TMDB 把无
   const q = await agg.searchActorQuick('刘德华');
   assert.equal(q.person, 25246);
 });
+
+test('findSources：电影不把续集（流浪地球2）当自己的季；剧集的 庆余年2 仍是第 2 季', async () => {
+  const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
+  const tv = (o) => vod({ area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, ...o });
+  const all = [
+    m({ siteId: 1, vodId: '1', name: '流浪地球', year: 2019 }),
+    m({ siteId: 1, vodId: '2', name: '流浪地球2', year: 2023 }),
+    tv({ siteId: 2, vodId: '3', name: '庆余年', year: 2019 }),
+    tv({ siteId: 2, vodId: '4', name: '庆余年2', year: 2024 }),
+  ];
+  agg._setDeps({ searchAll: async () => Object.assign([...all], { answered: 1 }), tmdb: { hasKey: () => false } });
+  const a = await agg.findSources({ name: '流浪地球', year: 2019, type: 'movie', kind: 'movie', region: 'cn' });
+  assert.deepEqual(a.map((v) => v.vodId), ['1']);
+  const b = await agg.findSources({ name: '流浪地球2', year: 2023, type: 'movie', kind: 'movie', region: 'cn' });
+  assert.deepEqual(b.map((v) => v.vodId), ['2']);
+  const s2 = await agg.findSources({ name: '庆余年', year: 2019, type: 'tv', kind: 'tv', region: 'cn' }, 2);
+  assert.deepEqual(s2.map((v) => v.vodId), ['4']);
+});
+
+test('电影续集（TMDB 命中路径）：流浪地球2 精确同名排第一，各站续集归到 TMDB 条目', async () => {
+  const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
+  deps({ '流浪地球2': [
+    m({ siteId: 1, vodId: '1', name: '流浪地球', year: 2019 }),
+    m({ siteId: 1, vodId: '2', name: '流浪地球2', year: 2023 }),
+    m({ siteId: 2, vodId: '3', name: '流浪地球2', year: 2023 }),
+  ] }, { multi: [
+    tm({ type: 'movie', id: 535167, name: '流浪地球', year: 2019, region: 'CN', popularity: 90 }),
+    tm({ type: 'movie', id: 842675, name: '流浪地球2', year: 2023, region: 'CN', popularity: 40 }),
+  ] });
+  const works = await agg.searchTitles('流浪地球2');
+  assert.equal(works[0].key, 'movie-842675');
+  assert.equal(works[0].sources.length, 2);
+  assert.equal(works.find((w) => w.key === 'movie-535167').sources.length, 1);
+});
