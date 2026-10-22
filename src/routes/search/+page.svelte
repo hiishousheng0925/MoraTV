@@ -14,6 +14,7 @@
   import { toCard, posterUrl } from '$lib/work.js';
   import { avail, watchAvail } from '$lib/avail.svelte.js';
   import UserCircle from 'phosphor-svelte/lib/UserCircle';
+  import CaretRight from 'phosphor-svelte/lib/CaretRight';
 
   const FIRST = 12;
 
@@ -39,7 +40,7 @@
         const j = await r.json().catch(() => ({}));
         if (j.error === 'NO_LLM_KEY') toast.error('先在设置里填写 AI 接口', { action: { label: '去设置', href: '/settings#ai' } });
         else if (!r.ok) toast.error(j.error || '搜索失败');
-        res = { works: j.works ?? [], persons: j.persons ?? [], person: j.person ?? null, error: !r.ok };
+        res = { works: j.works ?? [], persons: j.persons ?? [], person: j.person ?? null, bySites: !!j.bySites, actorCard: j.actorCard ?? null, error: !r.ok };
       })
       .catch((e) => { if (e?.name !== 'AbortError') { toast.error('搜索失败'); res = { works: [], persons: [], error: true }; } })
       .finally(() => { if (!ctl.signal.aborted) loading = false; });
@@ -71,6 +72,19 @@
       </div>
     </div>
   {:else if res}
+    {#if res.actorCard}
+      {@const c = res.actorCard}
+      <a href={personHref(c.id)} data-actor-card
+         class="tap card mt-6 flex max-w-md items-center gap-3.5 rounded-2xl p-3 transition hover:border-accent">
+        {#if c.profile}<img src={posterUrl(c.profile, 'w185')} alt="" class="h-14 w-14 rounded-full object-cover" />
+        {:else}<UserCircle size={56} class="text-ink-400" />{/if}
+        <div class="min-w-0">
+          <div class="truncate text-[15px] font-medium text-ink-100">{c.name}</div>
+          <div class="text-[12.5px] text-ink-400">演员 · 代表作 {c.workCount} 部</div>
+        </div>
+        <CaretRight size={18} class="ml-auto shrink-0 text-ink-400" aria-hidden="true" />
+      </a>
+    {/if}
     {#if isActor}
       <div class="mt-6 flex flex-wrap gap-2" data-persons>
         {#each res.persons.slice(0, 8) as p (p.id)}
@@ -87,7 +101,7 @@
     {/if}
 
     {#if works.length}
-      <Section title={isActor ? '作品' : '结果'} count={works.length}>
+      <Section title={isActor || res.bySites ? '作品' : '结果'} count={works.length}>
         <div use:watchAvail={lazyKeys} data-results>{#if main.length}<CardGrid items={shown.map((w) => toCard(w))} eager />{/if}</div>
         {#if main.length > FIRST && !more}
           <div class="mt-5 flex justify-center">
@@ -110,7 +124,7 @@
         {/if}
       </Section>
     {:else if !res.error}
-      <div class="mt-8"><EmptyState title="没有找到「{q}」" /></div>
+      <div class="mt-8"><EmptyState title="没有结果" /></div>
     {/if}
   {/if}
   <div class="h-6"></div>

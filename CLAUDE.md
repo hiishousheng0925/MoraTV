@@ -107,6 +107,12 @@ toast.error('线路加载失败');     // 红色描边，6 秒消失；传 { can
 - `works.js` 的缓存键带匹配版本（`src:v2:` / `avail:v2:` / `srch:v2:`），**改了匹配规则就把 `MATCH_V` 加一**，老用户缓存里的「无片源」立刻失效；无片源只缓存 6 小时。搜索结果经 `rememberSearch` 写进 `srch:` / `avail:`，详情页 `sourcesFor` 会按季并进来。
 - 资源站搜索（`cms/sites.js` `searchAll`）第 1 页满页时再取第 2 页。
 
+## 演员搜索（0.1.2 起）
+
+- 自动模式（`/api/search?mode=auto`）：片名搜索和 `findActorEntry(q)`（TMDB 人物，名字 / 原名繁简不敏感地完全相同、popularity ≥ 2、有作品）**并行**，`titleOutranksActor` 判定同名作品（有片源，或 TMDB 作品比这位演员更热）更像用户要的就不放入口卡；入口卡 = 响应里的 `actorCard {id,name,profile,workCount}`，点进 `mode=actor&person=<id>`。
+- 演员模式没 key / TMDB 查无此人 → `searchActorSites(q)`：名字当关键词搜各站（复用 `searchTerm` 缓存），只留 `vod_actor` 里有整个名字的条目（`actorKey` 繁简 / 间隔号不敏感），跳过综艺，再走 `cluster` → cms 作品，响应带 `bySites: true`。自动模式片名搜索没结果时同样回退到它。召回取决于资源站是否按演员字段匹配关键词（实测每个明星 20–40 部，随站点响应波动）。
+- 搜索页空状态统一「没有结果」，不带关键词、不带说明。
+
 ## 推荐 / 浏览候选（0.1.2 起）
 
 - **规则只有一处**：`tmdb.js` 的 `EXCLUDE_GENRES`（16 动画 / 10762 少儿 / 10763 新闻 / 10767 脱口秀）+ 评分人数门槛 `minVotesFor(region)`（港 / 台 `MIN_VOTES_LOW`=5，其余 `MIN_VOTES`=20；HK 剧集 ≥20 票的只有个位数）+ `recommendable(t, {keep, minVotes})`。`discover()` 在请求里带 `without_genres` / `vote_count.gte` 并再过一遍 `recommendable`（综艺 `kind:'variety'` 用 `keep:[10767]` 留脱口秀）；`trending()` 不支持这些参数，**原样返回**，调用方自己 `.filter((t) => tmdb.recommendable(t))`。浏览页 / 其他列表要复用这套，别另写类型表。`mapItem` 带出 `genreIds` / `voteCount` 就是为了它。

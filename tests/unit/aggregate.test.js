@@ -262,6 +262,57 @@ test('演员搜索：同名人物按热度排，取最热的那位（TMDB 把无
   assert.equal(q.person, 25246);
 });
 
+test('searchActorSites：资源站按名字搜，只留 vod_actor 里有这个名字的条目（繁简 / 间隔号），聚成作品、跳过综艺', async () => {
+  const a = (o) => vod({ area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, ...o });
+  deps({ '赵丽颖': [
+    a({ siteId: 1, vodId: '1', name: '花千骨', year: 2015, actors: ['赵丽颖', '霍建华'] }),
+    a({ siteId: 2, vodId: '2', name: '花千骨', year: 2015, actors: ['趙麗穎'] }), // 繁体
+    a({ siteId: 1, vodId: '3', name: '赵丽颖的朋友们', year: 2020, actors: ['某某'] }), // 片名含关键词但不是她演的
+    a({ siteId: 1, vodId: '4', name: '楚乔传', year: 2017, actors: ['赵丽颖丽'] }), // 不是整个名字相等
+    a({ siteId: 1, vodId: '5', name: '周末晚会', year: 2020, typeName: '综艺', category: { kind: 'variety', region: null }, actors: ['赵丽颖'] }),
+    a({ siteId: 1, vodId: '6', name: '风吹半夏', year: 2022, actors: ['赵丽颖'] }),
+  ] }, { key: false });
+  const r = await agg.searchActorSites('赵丽颖');
+  assert.equal(r.bySites, true);
+  assert.deepEqual(r.persons, []);
+  assert.deepEqual(r.works.map((w) => w.name), ['风吹半夏', '花千骨']);
+  assert.equal(r.works.find((w) => w.name === '花千骨').sources.length, 2);
+  assert.ok(r.works.every((w) => w.available && w.tmdb === null && w.key.startsWith('cms-')));
+  deps({}, { key: false });
+  assert.deepEqual((await agg.searchActorSites('刘德华')).works, []);
+});
+
+test('findActorEntry：名字完全相同且热度够才给入口；同名取最热；没 key / 热度低 / 名字不同都没有', async () => {
+  const persons = [
+    { id: 9, name: '刘德华', originalName: '刘德华', popularity: 0.27, profile: null, works: [] },
+    { id: 25246, name: '刘德华', originalName: '劉德華', popularity: 6.6, profile: '/p.jpg', works: [] },
+    { id: 7, name: '刘德华仔', originalName: '刘德华仔', popularity: 9, profile: null, works: [] },
+  ];
+  const credits = [tm({ id: 5, type: 'movie', name: '无间道', year: 2002 }), tm({ id: 6, type: 'movie', name: '风暴', year: 2013 })];
+  deps({}, { persons, credits });
+  const e = await agg.findActorEntry('劉德華'); // 繁体也认（原名 / 简繁不敏感）
+  assert.deepEqual({ id: e.id, name: e.name, profile: e.profile, workCount: e.workCount }, { id: 25246, name: '刘德华', profile: '/p.jpg', workCount: 2 });
+  assert.equal(await agg.findActorEntry('刘德'), null, '不是完整名字');
+  deps({}, { persons: [persons[0]], credits });
+  assert.equal(await agg.findActorEntry('刘德华'), null, '热度太低');
+  deps({}, { persons, credits: [] });
+  assert.equal(await agg.findActorEntry('刘德华'), null, '没有作品');
+  deps({}, { persons, credits, key: false });
+  assert.equal(await agg.findActorEntry('刘德华'), null);
+  deps({}, { fail: true });
+  assert.equal(await agg.findActorEntry('刘德华'), null);
+});
+
+test('titleOutranksActor：同名且有片源（或比演员更热）的作品压过演员入口', () => {
+  const entry = { popularity: 6 };
+  const w = (o) => ({ name: '刘德华', available: false, tmdb: null, ...o });
+  assert.equal(agg.titleOutranksActor('刘德华', [], entry), false);
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ name: '刘德华演唱会', available: true })], entry), false, '只是包含不算');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ available: true })], entry), true, '资源站里有同名作品');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ tmdb: { popularity: 3 } })], entry), false, '同名 TMDB 作品没演员热');
+  assert.equal(agg.titleOutranksActor('刘德华', [w({ tmdb: { popularity: 30 } })], entry), true, '同名 TMDB 作品更热');
+});
+
 test('findSources：电影不把续集（流浪地球2）当自己的季；剧集的 庆余年2 仍是第 2 季', async () => {
   const m = (o) => vod({ area: '大陆', typeName: '动作片', category: { kind: 'movie', region: 'cn' }, ...o });
   const tv = (o) => vod({ area: '大陆', typeName: '国产剧', category: { kind: 'tv', region: 'cn' }, ...o });

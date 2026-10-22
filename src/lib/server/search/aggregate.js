@@ -618,6 +618,56 @@ export async function searchActor(q, { personId } = {}) {
 }
 
 /**
+ * 没有 TMDB key（或 TMDB 查无此人）时的演员搜索：名字当关键词搜各资源站，只留 vod_actor 里有这个名字的条目（繁简 / 间隔号不敏感），
+ * 再用聚类并成作品。资源站大多只按片名搜，演员名常搜不出东西，所以召回有限；条目的演员列表整个相等才算（「刘德华」不匹配「刘德华仔」）。
+ * @param {string} q
+ * @returns {Promise<{persons: never[], works: any[], bySites: true}>}
+ */
+export async function searchActorSites(q) {
+  const query = String(q ?? '').trim();
+  const who = actorKey(query);
+  if (!who) return { persons: [], works: [], bySites: true };
+  // 综艺 / 晚会不算演戏（TMDB 路线的 isActingCredit 同理）
+  const vods = (await searchTerms(variants(query))).filter((v) => v.category?.kind !== 'variety' && (v.actors || []).some((a) => actorKey(a) === who));
+  vods.forEach((v) => { v._round = 1; });
+  const works = cluster(vods).filter((c) => c.vods.length).map((c) => workFromCluster(c));
+  works.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+  return { persons: [], works, bySites: true };
+}
+
+/** 自动模式里「这个关键词是个演员」的最低热度（TMDB person popularity）；无名同名者都在 1 以下 */
+const ACTOR_CARD_MIN_POP = 2;
+
+/**
+ * 自动模式的演员入口：关键词恰好是 TMDB 某人的名字（中文名或原名，繁简 / 标点不敏感）且热度够，返回入口卡所需的信息；否则 null。
+ * 同名取最热的一位；没 key / 出错 / 没有符合的都是 null（不影响片名搜索）。
+ * @param {string} q @returns {Promise<{id: number, name: string, profile: string|null, popularity: number, workCount: number}|null>}
+ */
+export async function findActorEntry(q) {
+  const query = String(q ?? '').trim();
+  const { tmdb } = deps;
+  const nq = actorKey(query);
+  if (!nq || !tmdb.hasKey()) return null;
+  const persons = rankPersons(await safe(tmdb.searchPerson(query), []));
+  const p = persons.find((p) => (p.popularity || 0) >= ACTOR_CARD_MIN_POP && [p.name, p.originalName].some((n) => actorKey(n) === nq));
+  if (!p) return null;
+  const credits = await safe(tmdb.personCredits(p.id), []);
+  const workCount = credits.filter((t) => t.type === 'tv' || t.type === 'movie').length;
+  if (!workCount) return null;
+  return { id: p.id, name: p.name, profile: p.profile || null, popularity: p.popularity || 0, workCount };
+}
+
+/**
+ * 有同名作品、且明显就是用户要找的（片名完全相同，并且有片源或比这位演员更热）时不放演员入口。
+ * @param {string} q @param {any[]} works searchTitles 的结果 @param {{popularity: number}} entry
+ */
+export function titleOutranksActor(q, works, entry) {
+  const nq = rawKey(toSimplified(String(q ?? '')));
+  return (works || []).some((w) => rawKey(toSimplified(w.name || '')) === nq
+    && (w.tmdb ? (w.tmdb.popularity || 0) >= entry.popularity : w.available));
+}
+
+/**
  * 演员搜索的快速版：只取人和作品列表（不逐部查片源，available 为 null），页面先渲染，可用性再懒加载。
  * @param {string} q @param {{personId?: number}} [opts]
  */
