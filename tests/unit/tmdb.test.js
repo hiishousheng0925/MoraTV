@@ -131,6 +131,29 @@ test('details 404 -> null；trending / discover / personCredits', async () => {
   assert.deepEqual(c.map((x) => x.id), [2, 1]);
 });
 
+test('discover：kind / region 映射到出站查询参数', async () => {
+  const last = () => hits.findLast((h) => h.path.startsWith('/3/discover/')).q;
+  await tmdb.discover('tv', { region: 'west', kind: 'variety' });
+  assert.equal(last().with_origin_country, 'US|GB');
+  assert.equal(last().with_genres, '10764|10767');
+  await tmdb.discover('tv', { region: 'kr', kind: 'doc' });
+  assert.equal(last().with_origin_country, 'KR');
+  assert.equal(last().with_genres, '99');
+  await tmdb.discover('tv', { region: 'th', kind: 'tv' });
+  assert.equal(last().with_origin_country, 'TH');
+  assert.equal(last().without_genres, '10764,10767,99');
+  assert.equal(last().with_genres, undefined);
+  await tmdb.discover('movie', { region: 'jp', kind: 'movie' });
+  assert.equal(last().with_genres, undefined);
+  assert.equal(last().without_genres, undefined);
+});
+
+test('details：404 负缓存只留短 TTL', async () => {
+  assert.equal(await tmdb.details('tv', 404), null);
+  const e = db().prepare("SELECT expires_at e FROM cache WHERE k LIKE '%/tv/404%'").get().e;
+  assert.ok(e - Date.now() / 1000 <= 605);
+});
+
 test('HTTP 错误会抛且不入缓存', async () => {
   setSetting('tmdb_key', 'bad');
   await assert.rejects(() => tmdb.searchMulti('错误'));

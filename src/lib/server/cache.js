@@ -3,12 +3,15 @@ import { db } from './db.js';
 
 export const MAX_TTL_SEC = 180 * 86400;
 const inflight = new Map();
+const NEG_TTL_SEC = 600;
+let purged = false;
 
 /**
  * @template T
  * @param {string} key @param {number} ttlSec @param {() => Promise<T>} fn @returns {Promise<T>}
  */
 export function cached(key, ttlSec, fn) {
+  if (!purged) { purged = true; try { purgeExpired(); } catch { /* 清理失败不影响取数 */ } }
   const now = Math.floor(Date.now() / 1000);
   const row = db().prepare('SELECT v, expires_at FROM cache WHERE k = ?').get(key);
   if (row && row.expires_at > now) {
@@ -17,10 +20,10 @@ export function cached(key, ttlSec, fn) {
   if (inflight.has(key)) return inflight.get(key);
   const ttl = Math.max(1, Math.min(Math.floor(ttlSec), MAX_TTL_SEC));
   const p = (async () => {
-    const val = await fn();
-    const json = JSON.stringify(val ?? null);
+    const val = (await fn()) ?? null;
+    const json = JSON.stringify(val);
     db().prepare('INSERT INTO cache (k, v, expires_at) VALUES (?, ?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v, expires_at = excluded.expires_at')
-      .run(key, json, Math.floor(Date.now() / 1000) + ttl);
+      .run(key, json, Math.floor(Date.now() / 1000) + (val === null ? Math.min(ttl, NEG_TTL_SEC) : ttl));
     return val;
   })().finally(() => inflight.delete(key));
   inflight.set(key, p);

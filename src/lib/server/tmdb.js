@@ -91,7 +91,7 @@ export async function details(type, id) {
   let overview = d.overview || '';
   if (!overview) {
     for (const lang of ['zh-TW', 'en-US']) {
-      const f = await get(`/${type}/${id}`, {}, TTL_DETAIL, lang);
+      const f = await get(`/${type}/${id}`, {}, TTL_DETAIL, lang).catch(() => null);
       if (f?.overview) { overview = f.overview; break; }
     }
   }
@@ -135,11 +135,20 @@ export async function trending(type = 'all') {
   return mapList(j, t === 'all' ? undefined : t);
 }
 
-/** @param {'tv'|'movie'} type @param {{region?: string, page?: number}} [opts] region = ISO 3166-1 国家码（HK/CN/TW/KR/JP/US/GB…） */
-export async function discover(type, { region, page = 1 } = {}) {
+const REGION = { cn: 'CN', hk: 'HK', tw: 'TW', kr: 'KR', jp: 'JP', th: 'TH', west: 'US|GB' };
+
+/**
+ * @param {'tv'|'movie'} type
+ * @param {{region?: string, page?: number, kind?: 'tv'|'movie'|'variety'|'doc'}} [opts]
+ * region：cn/hk/tw/kr/jp/th/west(=US|GB)，也可直接给 ISO 国家码；kind：variety = 综艺（真人秀|脱口秀），doc = 纪录片，
+ * tv = 剧集（排除综艺 / 纪录片），movie 不加类型过滤。
+ */
+export async function discover(type, { region, page = 1, kind } = {}) {
   if (!hasKey() || (type !== 'tv' && type !== 'movie')) return [];
   const params = { sort_by: 'popularity.desc', page, include_adult: 'false' };
-  if (region) params.with_origin_country = String(region).toUpperCase();
+  if (region) { const r = String(region); params.with_origin_country = REGION[r.toLowerCase()] || r.toUpperCase(); }
+  if (kind === 'variety' && type === 'tv') params.with_genres = '10764|10767';
+  else if (kind === 'doc') params.with_genres = '99';
+  else if (kind === 'tv' && type === 'tv') params.without_genres = '10764,10767,99';
   return mapList(await get(`/discover/${type}`, params, TTL_LIST), type);
 }
-
