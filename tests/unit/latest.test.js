@@ -38,6 +38,8 @@ const Q = [[
   ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => vod(100 + i, `国产${'甲乙丙丁戊己庚辛'[i - 1]}`, '国产剧', `2026-10-22 1${i}:00:00`)),
   vod(120, '韩剧甲', '韩国剧', '2026-10-22 09:00:00'), vod(121, '韩剧乙', '韩国剧', '2026-10-22 08:00:00'),
   vod(122, '国产辛', '国产剧', '2026-10-22 07:00:00', { vod_year: '' }),
+  vod(130, '独家港剧', '香港剧', '2026-10-22 10:30:00'), vod(131, '独家港剧', '香港剧', '2026-10-22 06:30:00', { vod_year: '' }),
+  vod(132, '独家台剧', '台湾剧', '2026-10-22 10:40:00', { vod_year: '' }), vod(133, '独家台剧', '台湾剧', '2026-10-22 06:40:00'),
   vod(123, '写真集', '写真', '2026-10-22 06:00:00'), vod(124, '侧耳倾听', 'AI漫剧', '2026-10-22 06:00:00'),
 ]];
 
@@ -118,7 +120,9 @@ test('collectLatest：每排每个地区最多 4 张；年份缺失的同名视�
   const r = await latest.collectLatest();
   assert.equal(r.tv.filter((x) => x.region === 'cn').length, 4);
   assert.equal(r.tv.filter((x) => x.region === 'kr').length, 2);
-  assert.equal(r.tv.filter((x) => x.name === '国产辛').length, 1);
+  // 配额之内（hk / tw 各只有 1 部）：只有「年份缺失视为同一部」这条能让重复条目消失
+  assert.equal(r.tv.filter((x) => x.name === '独家港剧').length, 1);
+  assert.equal(r.tv.filter((x) => x.name === '独家台剧').length, 1);
   assert.ok(!r.tv.some((x) => /写真|侧耳/.test(x.name)));
 });
 

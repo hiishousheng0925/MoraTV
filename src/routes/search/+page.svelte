@@ -88,7 +88,7 @@
 
     {#if works.length}
       <Section title={isActor ? '作品' : '结果'} count={works.length}>
-        <div use:watchAvail={lazyKeys} data-results><CardGrid items={shown.map((w) => toCard(w))} eager /></div>
+        <div use:watchAvail={lazyKeys} data-results>{#if main.length}<CardGrid items={shown.map((w) => toCard(w))} eager />{/if}</div>
         {#if main.length > FIRST && !more}
           <div class="mt-5 flex justify-center">
             <button onclick={() => (more = true)}
